@@ -8,7 +8,7 @@
  * past hackathons, and logs the run to the `scrape_runs` table.
  *
  * Usage:
- *   npm run scrape
+ *    npm run scrape
  */
 
 import { config as dotenvConfig } from 'dotenv';
@@ -113,8 +113,6 @@ async function upsertHackathons(
 
   return { upserted, skipped, newIds, errors };
 }
-
-
 
 // ─── Expire step ──────────────────────────────────────────────────────────────
 
@@ -233,8 +231,6 @@ async function main(): Promise<void> {
     await new Promise((r) => setTimeout(r, 3000));
   }
 
-
-
   // ── Expire old hackathons ───────────────────────────────────────────────
   logger.info('\n─── Expire Old Hackathons ───');
   const totalExpired = await runExpireHackathons(supabase);
@@ -287,6 +283,9 @@ async function main(): Promise<void> {
 
   console.log('\n[SCRAPER_SUMMARY_JSON]');
   console.log(JSON.stringify(summary, null, 2));
+
+  // 🟢 Signal clean completion to GitHub Actions
+  process.exit(0);
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
