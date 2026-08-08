@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<div align="center">
 
-## Getting Started
+# 📡 HackathonRadar
 
-First, run the development server:
+### *Every hackathon. One place.*
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+An autonomous, real-time intelligence dashboard aggregating active hackathons across **Unstop, Devpost, HackerEarth, Devfolio, and HackCulture** — updated automatically on a 12-hour engine.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-hackathon--radar--alpha.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://hackathon-radar-alpha.vercel.app)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-Database-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com)
+[![Upstash Redis](https://img.shields.io/badge/Upstash-Redis-00E599?style=for-the-badge&logo=redis&logoColor=white)](https://upstash.com)
+[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-Automated-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+</div>
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## ✨ Why HackathonRadar?
 
-To learn more about Next.js, take a look at the following resources:
+Finding hackathons across multiple platforms is tedious and noisy. **HackathonRadar** unifies active global hackathons into a single, lightning-fast command dashboard. 
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+No sign-ups required. No sponsored clutter. Just active hackathons with real-time countdowns and direct application routes.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## ⚡ Key Features
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+* **🤖 100% Autonomous Scraper Pipeline:** GitHub Actions execute headless stealth scrapers every **12 hours** to fetch fresh hackathons and upsert them directly to PostgreSQL.
+* **🧹 Smart Deadline Pruning:** Automatically filters out and purges expired events so you only see active opportunities.
+* **🎯 Precision Filtering:** Filter instantly by format (**Online**, **Offline/In-Person**, **Hybrid**) or keyword search.
+* **🛡️ Rate-Limited Edge Security:** Built-in sliding-window rate limiting via **Upstash Redis** to protect backend APIs against abuse.
+* **📊 Privacy-First Web Analytics:** Real-time visitor tracking integrated natively with **Vercel Analytics**.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 🏗️ System Architecture
+
+```text
+  [ Unstop / Devpost / HackerEarth / Devfolio / HackCulture ]
+                             │
+                  (Scheduled Cron Job - 12h)
+                             │
+                             ▼
+                 [ 🤖 GitHub Actions Scraper ]
+                             │
+                             ▼
+               [ 🐘 Supabase PostgreSQL DB ]
+                             │
+               (Indexed Queries / Auto-Pruning)
+                             │
+                             ▼
+     [ ⚡ Next.js App Router + Upstash Redis Rate Limiter ]
+                             │
+                             ▼
+               [ 🚀 Deployed on Vercel Edge ]
