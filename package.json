@@ -20,6 +20,7 @@
     "@types/node-fetch": "^2.6.13",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.2",
+    "@vercel/analytics": "^2.0.1",
     "caniuse-lite": "^1.0.30001809",
     "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
