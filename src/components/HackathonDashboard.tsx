@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import type { Hackathon } from '@/types/hackathon';
 import StatsBar from './StatsBar';
 import FilterBar from './FilterBar';
 import HackathonGrid from './HackathonGrid';
-import { Terminal, Shield, AlertTriangle, ArrowRight, RotateCcw } from 'lucide-react';
+import { Terminal, Shield, RotateCcw } from 'lucide-react';
 
 interface HackathonDashboardProps {
   initialHackathons: Hackathon[];
@@ -35,7 +35,6 @@ export default function HackathonDashboard({
 
   // Client-side states for filtering
   const [hackathons, setHackathons] = useState<Hackathon[]>(initialHackathons);
-  const [total, setTotal] = useState(initialTotal);
   const [totalPages, setTotalPages] = useState(initialTotalPages);
   const [stats, setStats] = useState(initialStats);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,31 +45,31 @@ export default function HackathonDashboard({
     const hasParams = searchParams.toString().length > 0;
     if (!hasParams) {
       setHackathons(initialHackathons);
-      setTotal(initialTotal);
       setTotalPages(initialTotalPages);
       setStats(initialStats);
       return;
     }
 
     let active = true;
+    const controller = new AbortController();
 
     async function fetchFilteredData() {
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/hackathons?${searchParams.toString()}`);
+        const res = await fetch(`/api/hackathons?${searchParams.toString()}`, { signal: controller.signal });
         if (!res.ok) throw new Error('API fetch failed');
         const json = await res.json();
+        if (!Array.isArray(json.hackathons)) throw new Error('Invalid API response');
         
         if (active) {
           setHackathons(json.hackathons);
-          setTotal(json.total);
           setTotalPages(json.totalPages);
           if (json.stats) {
             setStats(json.stats);
           }
         }
       } catch (err) {
-        console.error('Failed client filtering:', err);
+        if (!controller.signal.aborted) console.error('Failed client filtering:', err);
       } finally {
         if (active) {
           setIsLoading(false);
@@ -82,10 +81,12 @@ export default function HackathonDashboard({
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [searchParams, initialHackathons, initialTotal, initialTotalPages, initialStats]);
 
-  const activePage = searchParams.get('page') ? parseInt(searchParams.get('page')!, 10) : 1;
+  const requestedPage = Number(searchParams.get('page'));
+  const activePage = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : initialPage;
 
   // Handle pagination transitions helper
   const handlePageChange = (newPage: number) => {
@@ -120,7 +121,7 @@ export default function HackathonDashboard({
       <section className="max-w-6xl mx-auto w-full px-4 pt-16 pb-10 space-y-6">
         <div className="flex items-center gap-2.5">
           <span className="bg-accent-primary/20 border border-accent-primary/40 text-accent-primary text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-md tracking-wider">
-            {initialStats.total} HACKATHONS LIVE
+            {stats.total} HACKATHONS LIVE
           </span>
           <span className="text-[10px] text-zinc-600 font-mono tracking-widest uppercase">
             {lastUpdatedText}
@@ -132,7 +133,7 @@ export default function HackathonDashboard({
             Every hackathon.<br />One place.
           </h1>
           <p className="text-sm md:text-base text-zinc-400 leading-relaxed">
-            Live listings from Unstop, Devfolio, HackerEarth, Devpost, Internshala & HackCulture — updated every 12 hours.
+            Live listings from Unstop, Devpost & HackCulture — refreshed every 12 hours.
           </p>
         </div>
 
@@ -226,7 +227,7 @@ export default function HackathonDashboard({
       <footer className="w-full border-t border-zinc-900/60 mt-24 py-8 px-4 text-center text-[10px] font-mono text-zinc-650 tracking-wider">
         <div className="max-w-6xl mx-auto space-y-1">
           <p className="text-zinc-500 uppercase">
-            HackRadar · Data Aggregated from Unstop, Devfolio, HackerEarth, Devpost, Internshala, HackCulture
+            HackRadar · Data aggregated from Unstop, Devpost & HackCulture
           </p>
           <p className="text-zinc-600">
             System running: Node Scraper (Playwright stealth module) · Updates automatically every 12 hours
