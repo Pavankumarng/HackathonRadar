@@ -144,15 +144,6 @@ export async function scrapeDevpost(): Promise<ScrapedHackathon[]> {
       }
       if (Date.parse(range.end) <= now) continue;
 
-      const organization = stringValue(item.organization_name) || stringValue(item.organization);
-      const registrations = Number(item.registrations_count);
-      const summaryParts = [
-        organization ? `Hosted by ${organization}.` : undefined,
-        Number.isFinite(registrations) && registrations > 0
-          ? `${registrations.toLocaleString('en-US')} registrations.`
-          : undefined,
-      ].filter(Boolean);
-
       results.set(sourceUrl, {
         title: title.replace(/^Featured\s*/i, '').trim(),
         source_site: 'devpost',
@@ -160,7 +151,6 @@ export async function scrapeDevpost(): Promise<ScrapedHackathon[]> {
         mode: extractMode(item),
         prize_pool: cleanPrize(item.prize_amount),
         tags: extractThemes(item.themes),
-        ai_summary: summaryParts.join(' ') || undefined,
         registration_start: range.start || undefined,
         registration_end: range.end,
         rounds: [],
