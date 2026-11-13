@@ -49,6 +49,13 @@ export async function newPage(ctx?: BrowserContext): Promise<{ page: Page; conte
   return { page, context };
 }
 
+/** Exponential backoff delay: attempt 0=1s, 1=2s, 2=4s. */
+export async function backoffDelay(attempt: number): Promise<void> {
+  const ms = Math.pow(2, attempt) * 1000;
+  console.log(`[browser] Backoff ${ms}ms before retry ${attempt + 1}`);
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ─── Retry wrapper ────────────────────────────────────────────────────────────
 
 /**
