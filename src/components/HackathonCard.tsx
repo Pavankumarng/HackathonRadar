@@ -16,7 +16,6 @@ export default function HackathonCard({ hackathon }: HackathonCardProps) {
     mode,
     prize_pool,
     team_size,
-    banner_url,
     tags = [],
     ai_summary,
     registration_end,
