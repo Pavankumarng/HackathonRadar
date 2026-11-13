@@ -5,7 +5,7 @@ import { makeLogger } from '../utils/logger';
 const logger = makeLogger('unstop');
 const SEARCH_ENDPOINT = 'https://unstop.com/api/public/opportunity/search-result';
 const PER_PAGE = 15;
-const MAX_PAGES = 12;
+const MAX_PAGES = Math.max(1, Math.min(12, Number(process.env.SCRAPER_MAX_PAGES) || 12));
 const REQUEST_HEADERS: Record<string, string> = {
   'User-Agent': 'Mozilla/5.0 (compatible; HackathonRadar/1.0; +https://hackathon-radar-alpha.vercel.app)',
   Accept: 'application/json, text/plain, */*',
