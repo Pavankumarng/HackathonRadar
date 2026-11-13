@@ -1,11 +1,8 @@
 /**
- * scripts/scraper/types/puppeteer-extra-plugin-stealth.d.ts
- *
- * Type declaration for puppeteer-extra-plugin-stealth
- * (the package has no bundled types).
+ * Minimal type bridge for puppeteer-extra-plugin-stealth, which ships without
+ * TypeScript declarations. The runtime plugin is checked at registration.
  */
 declare module 'puppeteer-extra-plugin-stealth' {
-  // It returns a plugin compatible with puppeteer-extra/playwright-extra
-  function StealthPlugin(): any;
+  function StealthPlugin(): unknown;
   export = StealthPlugin;
 }
