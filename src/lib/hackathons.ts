@@ -28,13 +28,6 @@ function normalizedSources(source: HackathonFilters['source_site']): SourceSite[
   );
 }
 
-function applyFilters(
-  query: ReturnType<ReturnType<typeof createServerAnonClient>['from']>,
-  _unused?: never,
-) {
-  return query;
-}
-
 export async function getHackathons(filters: HackathonFilters = {}): Promise<HackathonsResponse> {
   const mode = filters.mode;
   const sources = normalizedSources(filters.source_site);
