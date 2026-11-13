@@ -9,7 +9,9 @@
     "lint": "eslint",
     "scrape": "ts-node --project tsconfig.scraper.json scripts/scraper/index.ts",
     "scrape:dry": "SCRAPE_DRY_RUN=true ts-node --project tsconfig.scraper.json scripts/scraper/index.ts",
-    "scrape:devfolio": "ts-node --project tsconfig.scraper.json -e \"require('./scripts/scraper/scrapers/devfolio').scrapeDevfolio().then(r => console.log(JSON.stringify(r, null, 2)))\""
+    "test:scraper": "ts-node --project tsconfig.scraper.json scripts/scraper/utils/parseDate.test.ts",
+    "typecheck": "tsc --noEmit",
+    "scrape:typecheck": "tsc --noEmit --project tsconfig.scraper.json"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
