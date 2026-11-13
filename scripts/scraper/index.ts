@@ -1,296 +1,344 @@
 /**
- * scripts/scraper/index.ts
+ * Reliable HackathonRadar ingestion orchestrator.
  *
- * HackRadar — Main Scraper Orchestrator
- *
- * Runs all active platform scrapers in sequence, upserts to Supabase immediately
- * after each finishes, generates Gemini AI summaries for new records, expires
- * past hackathons, and logs the run to the `scrape_runs` table.
- *
- * Usage:
- *    npm run scrape
+ * - Runs each source independently so one outage does not block other sources.
+ * - Rejects invalid URLs and unverified/expired deadlines before persistence.
+ * - Preserves fields enriched by other pipeline steps when a source has no value.
+ * - Records run telemetry and returns a failing process status on real failures.
+ * - Supports SCRAPE_DRY_RUN=true without Supabase credentials or writes.
  */
 
 import { config as dotenvConfig } from 'dotenv';
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 dotenvConfig({ path: resolve(process.cwd(), '.env.local') });
 dotenvConfig({ path: resolve(process.cwd(), '.env') });
+
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../../src/types/database';
-import type { ScrapedHackathon, RunStats, OrchestratorSummary } from './types';
-
+import type { HackathonMode, SourceSite, ScrapedHackathon, RunStats, OrchestratorSummary } from './types';
 import { scrapeUnstop } from './scrapers/unstop';
 import { scrapeDevpost } from './scrapers/devpost';
 import { scrapeHackCulture } from './scrapers/hackculture';
-
 import { makeLogger } from './utils/logger';
 
 const logger = makeLogger('orchestrator');
+const DRY_RUN = process.env.SCRAPE_DRY_RUN === 'true';
+const SCRAPER_TIMEOUT_MS = 120_000;
+const BATCH_SIZE = 20;
 
-// ─── Supabase admin client (service role — bypasses RLS) ─────────────────────
+type AdminClient = ReturnType<typeof getSupabaseAdmin>;
 
 function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      '[orchestrator] Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'
-    );
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRoleKey) {
+    throw new Error('Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) or SUPABASE_SERVICE_ROLE_KEY');
   }
-  return createClient<Database>(url, key, {
+  if (!url.startsWith('https://')) {
+    throw new Error('SUPABASE_URL must be an HTTPS URL');
+  }
+
+  return createClient<Database>(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { 'X-Client-Info': 'hackathonradar-scraper/1.0' } },
   });
 }
 
-// ─── Timeout helper ───────────────────────────────────────────────────────────
-
-function timeout(ms: number, msg: string): Promise<never> {
-  return new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms));
+async function withTimeout<T>(task: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
-// ─── Scraper registry ─────────────────────────────────────────────────────────
-
-const SCRAPERS: Array<{ name: ScrapedHackathon['source_site']; fn: () => Promise<ScrapedHackathon[]> }> = [
-  { name: 'unstop',      fn: scrapeUnstop },
-  { name: 'devpost',     fn: scrapeDevpost },
-  { name: 'hackculture', fn: scrapeHackCulture },
+const SCRAPERS: Array<{ name: SourceSite; run: () => Promise<ScrapedHackathon[]> }> = [
+  { name: 'unstop', run: scrapeUnstop },
+  { name: 'devpost', run: scrapeDevpost },
+  { name: 'hackculture', run: scrapeHackCulture },
 ];
 
-// ─── Upsert helpers ───────────────────────────────────────────────────────────
+function expectedHost(source: SourceSite): string {
+  switch (source) {
+    case 'unstop': return 'unstop.com';
+    case 'devpost': return 'devpost.com';
+    case 'hackculture': return 'hackculture.in';
+  }
+}
+
+function validateRecord(item: ScrapedHackathon, source: SourceSite, now: number): string | null {
+  if (!item.title?.trim()) return 'Missing title';
+  if (item.source_site !== source) return `Source mismatch: expected ${source}, received ${item.source_site}`;
+  if (!item.registration_end || !Number.isFinite(Date.parse(item.registration_end))) return 'Missing or invalid registration deadline';
+  if (Date.parse(item.registration_end) <= now) return 'Registration deadline has passed';
+
+  try {
+    const url = new URL(item.source_url);
+    const host = expectedHost(source);
+    if (url.protocol !== 'https:' || (url.hostname !== host && !url.hostname.endsWith(`.${host}`))) {
+      return `Untrusted source URL host: ${url.hostname}`;
+    }
+  } catch {
+    return 'Invalid source URL';
+  }
+
+  if (item.mode && !(['online', 'offline', 'hybrid'] as HackathonMode[]).includes(item.mode)) {
+    return 'Invalid event mode';
+  }
+  return null;
+}
+
+interface UpsertOutcome {
+  inserted: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
 
 async function upsertHackathons(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  hackathons: ScrapedHackathon[],
-  source: string
-): Promise<{ upserted: number; skipped: number; newIds: string[]; errors: string[] }> {
-  const errors: string[] = [];
-  let upserted = 0;
+  supabase: AdminClient,
+  records: ScrapedHackathon[],
+  source: SourceSite,
+): Promise<UpsertOutcome> {
+  let inserted = 0;
+  let updated = 0;
   let skipped = 0;
-  const newIds: string[] = [];
+  const errors: string[] = [];
+  const nowIso = new Date().toISOString();
 
-  const BATCH_SIZE = 20;
-  for (let i = 0; i < hackathons.length; i += BATCH_SIZE) {
-    const batch = hackathons.slice(i, i + BATCH_SIZE);
+  for (let offset = 0; offset < records.length; offset += BATCH_SIZE) {
+    const batch = records.slice(offset, offset + BATCH_SIZE);
+    const urls = batch.map((record) => record.source_url);
 
-    const rows = batch.map((h) => ({
-      title: h.title,
-      source_site: h.source_site,
-      source_url: h.source_url,
-      mode: h.mode ?? null,
-      prize_pool: h.prize_pool ?? null,
-      team_size: h.team_size ?? null,
-      banner_url: null, // Images disabled by user request
-      tags: h.tags ?? [],
-      ai_summary: null, // populated separately by Gemini step
-      registration_start: h.registration_start ?? null,
-      registration_end: h.registration_end,
-      rounds: (h.rounds ?? []) as unknown,
-      venue_name: h.venue_name ?? null,
-      venue_city: h.venue_city ?? null,
-      venue_state: h.venue_state ?? null,
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    }));
+    const { data: previousRows, error: lookupError } = await supabase
+      .from('hackathons')
+      .select('source_url, mode, prize_pool, team_size, banner_url, tags, ai_summary, registration_start, rounds, venue_name, venue_city, venue_state')
+      .in('source_url', urls);
+
+    if (lookupError) {
+      const message = `Could not read existing rows for ${source} batch ${Math.floor(offset / BATCH_SIZE) + 1}: ${lookupError.message}`;
+      logger.error(message);
+      errors.push(message);
+      skipped += batch.length;
+      continue;
+    }
+
+    const existingByUrl = new Map((previousRows ?? []).map((row) => [row.source_url, row]));
+    const rows = batch.map((record) => {
+      const previous = existingByUrl.get(record.source_url);
+      return {
+        title: record.title.trim(),
+        source_site: source,
+        source_url: record.source_url,
+        mode: record.mode ?? previous?.mode ?? null,
+        prize_pool: record.prize_pool ?? previous?.prize_pool ?? null,
+        team_size: record.team_size ?? previous?.team_size ?? null,
+        banner_url: record.banner_url ?? previous?.banner_url ?? null,
+        tags: record.tags?.length ? record.tags : previous?.tags ?? [],
+        ai_summary: record.ai_summary ?? previous?.ai_summary ?? null,
+        registration_start: record.registration_start ?? previous?.registration_start ?? null,
+        registration_end: record.registration_end,
+        rounds: record.rounds?.length ? record.rounds : previous?.rounds ?? [],
+        venue_name: record.venue_name ?? previous?.venue_name ?? null,
+        venue_city: record.venue_city ?? previous?.venue_city ?? null,
+        venue_state: record.venue_state ?? previous?.venue_state ?? null,
+        scraped_at: nowIso,
+        updated_at: nowIso,
+        is_active: true,
+      };
+    });
 
     const { data, error } = await supabase
       .from('hackathons')
-      .upsert(rows, {
-        onConflict: 'source_url',
-        ignoreDuplicates: false,
-      })
-      .select('id, source_url');
+      .upsert(rows, { onConflict: 'source_url', ignoreDuplicates: false })
+      .select('source_url');
 
     if (error) {
-      const msg = `Batch upsert error (${source} batch ${i / BATCH_SIZE + 1}): ${error.message}`;
-      logger.error(msg);
-      errors.push(msg);
+      const message = `Upsert failed for ${source} batch ${Math.floor(offset / BATCH_SIZE) + 1}: ${error.message}`;
+      logger.error(message);
+      errors.push(message);
       skipped += batch.length;
-    } else {
-      upserted += data?.length ?? 0;
-      newIds.push(...(data?.map((r) => r.id) ?? []));
+      continue;
+    }
+
+    const returnedCount = data?.length ?? 0;
+    if (returnedCount !== batch.length) {
+      const message = `Upsert returned ${returnedCount}/${batch.length} rows for ${source}`;
+      logger.error(message);
+      errors.push(message);
+      skipped += batch.length - returnedCount;
+    }
+
+    for (const row of data ?? []) {
+      if (existingByUrl.has(row.source_url)) updated++;
+      else inserted++;
     }
   }
 
-  return { upserted, skipped, newIds, errors };
+  return { inserted, updated, skipped, errors };
 }
 
-// ─── Expire step ──────────────────────────────────────────────────────────────
-
-async function runExpireHackathons(supabase: ReturnType<typeof getSupabaseAdmin>): Promise<number> {
-  logger.info('Running expire_old_hackathons()');
-
-  const { error: fnError } = await supabase.rpc('expire_old_hackathons');
-  if (fnError) {
-    logger.warn('RPC expire_old_hackathons failed, falling back to direct update', fnError);
-    const { data, error: updateError } = await supabase
-      .from('hackathons')
-      .update({ is_active: false })
-      .lt('registration_end', new Date().toISOString())
-      .eq('is_active', true)
-      .select('id');
-
-    if (updateError) {
-      logger.error('Fallback expire failed', updateError);
-      return 0;
-    }
-    const count = data?.length ?? 0;
-    logger.success(`Expired ${count} hackathons (fallback)`);
+async function expireOldHackathons(supabase: AdminClient): Promise<number> {
+  const { data, error } = await supabase.rpc('expire_old_hackathons_count');
+  if (!error) {
+    const count = Number(data ?? 0);
+    logger.success(`Expired ${count} hackathons`);
     return count;
   }
 
-  const { count } = await supabase
+  logger.warn(`Count-returning expiry RPC unavailable; using safe fallback: ${error.message}`);
+  const { data: changedRows, error: updateError } = await supabase
     .from('hackathons')
-    .select('id', { count: 'exact', head: true })
-    .eq('is_active', false)
-    .lt('registration_end', new Date().toISOString());
+    .update({ is_active: false })
+    .eq('is_active', true)
+    .lt('registration_end', new Date().toISOString())
+    .select('id');
 
-  logger.success(`Expire function completed. Total inactive: ${count ?? '?'}`);
-  return 0;
+  if (updateError) throw new Error(`Expiry fallback failed: ${updateError.message}`);
+  return changedRows?.length ?? 0;
 }
-
-// ─── Main orchestrator ────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  logger.info('═══════════════════════════════════════');
-  logger.info('  HackRadar Scraper — Starting Run');
-  logger.info(`  Started at: ${startedAt}`);
-  logger.info('═══════════════════════════════════════');
+  logger.info('════════ HackathonRadar scraper started ════════');
+  logger.info(`Started at: ${startedAt}; dry run: ${DRY_RUN}`);
 
-  const supabase = getSupabaseAdmin();
+  const supabase = DRY_RUN ? null : getSupabaseAdmin();
   const perSource: RunStats[] = [];
-  const siteErrors: Record<string, string> = {};
-
+  let hadFailure = false;
   let totalFetched = 0;
-  let totalUpserted = 0;
+  let totalInserted = 0;
+  let totalUpdated = 0;
   let totalSkipped = 0;
 
-  for (const { name, fn } of SCRAPERS) {
-    logger.info(`\n─── Starting scraper: ${name} ───`);
-    const scraperStart = Date.now();
-
-    let fetched = 0;
-    let upserted = 0;
-    let skipped = 0;
+  for (const scraper of SCRAPERS) {
+    const { name, run } = scraper;
+    const started = Date.now();
     const errors: string[] = [];
+    let fetched = 0;
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
 
+    logger.info(`Starting source: ${name}`);
     try {
-      // FIX 1: Promise.race for timeouts
-      const hackathons = await Promise.race([
-        fn(),
-        timeout(120_000, `${name} timed out after 2 minutes`),
-      ]);
-      fetched = hackathons.length;
-
-      const valid = hackathons.filter((h) => {
-        if (!h.registration_end) {
-          logger.warn(`[${name}] Dropping "${h.title}" — no registration_end`);
-          skipped++;
-          return false;
-        }
-        return true;
-      });
-
+      const records = await withTimeout(run(), SCRAPER_TIMEOUT_MS, name);
+      fetched = records.length;
+      const now = Date.now();
       const seen = new Set<string>();
-      const deduped = valid.filter((h) => {
-        if (seen.has(h.source_url)) {
-          logger.warn(`[${name}] Duplicate source_url: ${h.source_url}`);
+      const valid: ScrapedHackathon[] = [];
+
+      for (const record of records) {
+        const validationError = validateRecord(record, name, now);
+        if (validationError) {
           skipped++;
-          return false;
+          logger.skipped(record.source_url || record.title, validationError);
+          continue;
         }
-        seen.add(h.source_url);
-        return true;
-      });
-
-      logger.info(`[${name}] Fetched: ${fetched}, valid: ${deduped.length}, pre-skip: ${skipped}`);
-
-      if (deduped.length > 0) {
-        // FIX 1: Save immediately after each scraper
-        const { upserted: u, skipped: s, errors: e } = await upsertHackathons(supabase, deduped, name);
-        upserted += u;
-        skipped += s;
-        errors.push(...e);
-        logger.success(`✓ ${name}: saved ${upserted} hackathons`);
+        if (seen.has(record.source_url)) {
+          skipped++;
+          logger.skipped(record.source_url, 'Duplicate source URL within scrape batch');
+          continue;
+        }
+        seen.add(record.source_url);
+        valid.push(record);
       }
 
-      const elapsedSec = ((Date.now() - scraperStart) / 1000).toFixed(1);
-      logger.success(`[${name}] Done in ${elapsedSec}s — upserted: ${upserted}, skipped: ${skipped}`);
-    } catch (err) {
-      const msg = `[${name}] Scraper failed: ${err instanceof Error ? err.message : String(err)}`;
-      logger.error(`✗ ${msg}`);
-      errors.push(msg);
-      siteErrors[name] = msg;
+      if (valid.length === 0) {
+        logger.warn(`${name} returned zero verified active listings (fetched ${fetched})`);
+      } else if (DRY_RUN) {
+        logger.info(`Dry run: ${valid.length} ${name} records validated; no database writes performed`);
+      } else if (supabase) {
+        const outcome = await upsertHackathons(supabase, valid, name);
+        inserted = outcome.inserted;
+        updated = outcome.updated;
+        skipped += outcome.skipped;
+        errors.push(...outcome.errors);
+        if (outcome.errors.length) hadFailure = true;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(message);
+      hadFailure = true;
+      logger.error(`Source ${name} failed: ${message}`);
     }
 
-    perSource.push({ source: name, fetched, upserted, skipped, errors });
+    const upserted = inserted + updated;
+    const stats: RunStats = { source: name, fetched, upserted, inserted, updated, skipped, errors };
+    perSource.push(stats);
     totalFetched += fetched;
-    totalUpserted += upserted;
+    totalInserted += inserted;
+    totalUpdated += updated;
     totalSkipped += skipped;
-
-    logger.info(`[orchestrator] Pausing 3s before next scraper...`);
-    await new Promise((r) => setTimeout(r, 3000));
+    logger.info(`${name} completed in ${((Date.now() - started) / 1000).toFixed(1)}s: fetched=${fetched}, inserted=${inserted}, updated=${updated}, skipped=${skipped}`);
   }
 
-  // ── Expire old hackathons ───────────────────────────────────────────────
-  logger.info('\n─── Expire Old Hackathons ───');
-  const totalExpired = await runExpireHackathons(supabase);
-
-  // ── Final summary and Log ─────────────────────────────────────────────────
-  const finishedAt = new Date().toISOString();
-  
-  // FIX 6: Add to scrape_runs table
-  try {
-    const resultsObj: Record<string, number> = {};
-    for (const stat of perSource) {
-      resultsObj[stat.source] = stat.upserted;
+  let totalExpired = 0;
+  if (!DRY_RUN && supabase) {
+    try {
+      totalExpired = await expireOldHackathons(supabase);
+    } catch (error) {
+      hadFailure = true;
+      logger.error(`Expiry step failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    
-    await supabase.from('scrape_runs').insert([{
-      started_at: startedAt,
-      finished_at: finishedAt,
-      results: resultsObj,
-      errors: siteErrors
-    }] as any);
-    logger.info('Logged run statistics to scrape_runs table.');
-  } catch (err) {
-    logger.error('Failed to log scrape run', err);
+  } else {
+    logger.info('Dry run: expiry step skipped');
   }
 
+  const finishedAt = new Date().toISOString();
   const summary: OrchestratorSummary = {
     startedAt,
     finishedAt,
+    dryRun: DRY_RUN,
     totalFetched,
-    totalNew: totalUpserted,
-    totalUpdated: 0,
+    totalNew: totalInserted,
+    totalUpdated,
+    totalUpserted: totalInserted + totalUpdated,
     totalSkipped,
     totalExpired,
     perSource,
   };
 
-  logger.info('\n═══════════════════════════════════════');
-  logger.info('  HackRadar Scraper — Run Complete');
-  logger.info(`  Finished at  : ${finishedAt}`);
-  logger.info(`  Total fetched: ${totalFetched}`);
-  logger.info(`  Total upserted: ${totalUpserted}`);
-  logger.info(`  Total skipped: ${totalSkipped}`);
-  logger.info(`  Total expired: ${totalExpired}`);
-  logger.info('  Per source:');
-  for (const stat of perSource) {
-    const errStr = stat.errors.length > 0 ? ` ⚠ ${stat.errors.length} error(s)` : '';
-    logger.info(`    ${stat.source.padEnd(12)}: fetched=${stat.fetched} upserted=${stat.upserted} skipped=${stat.skipped}${errStr}`);
-  }
-  logger.info('═══════════════════════════════════════\n');
+  if (!DRY_RUN && supabase) {
+    const results = Object.fromEntries(perSource.map((item) => [
+      item.source,
+      { fetched: item.fetched, inserted: item.inserted, updated: item.updated, skipped: item.skipped },
+    ]));
+    const errors = Object.fromEntries(perSource.filter((item) => item.errors.length).map((item) => [item.source, item.errors]));
 
-  console.log('\n[SCRAPER_SUMMARY_JSON]');
+    const { error: logError } = await supabase.from('scrape_runs').insert({
+      started_at: startedAt,
+      finished_at: finishedAt,
+      results,
+      errors,
+    });
+    if (logError) {
+      hadFailure = true;
+      logger.error(`Failed to persist scrape run: ${logError.message}`);
+    }
+  }
+
+  logger.info('════════ HackathonRadar scraper summary ════════');
+  logger.info(JSON.stringify(summary, null, 2));
+  console.log('[SCRAPER_SUMMARY_JSON]');
   console.log(JSON.stringify(summary, null, 2));
 
-  // 🟢 Signal clean completion to GitHub Actions
-  process.exit(0);
+  if (hadFailure) {
+    logger.error('Scraper run completed with one or more failures');
+    process.exitCode = 1;
+  } else {
+    logger.success('Scraper run completed without reported errors');
+    process.exitCode = 0;
+  }
 }
 
-// ─── Entry point ──────────────────────────────────────────────────────────────
-
-main().catch((err) => {
-  logger.error('FATAL: Orchestrator crashed', err);
-  process.exit(1);
+main().catch((error) => {
+  logger.error('FATAL: scraper orchestrator crashed', error);
+  process.exitCode = 1;
 });
