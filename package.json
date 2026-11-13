@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "scrape": "ts-node --project tsconfig.scraper.json scripts/scraper/index.ts",
-    "scrape:dry": "SCRAPE_DRY_RUN=true ts-node --project tsconfig.scraper.json scripts/scraper/index.ts",
+    "scrape:dry": "ts-node --project tsconfig.scraper.json scripts/scraper/dryRun.ts",
     "test:scraper": "ts-node --project tsconfig.scraper.json scripts/scraper/utils/parseDate.test.ts",
     "typecheck": "tsc --noEmit",
     "scrape:typecheck": "tsc --noEmit --project tsconfig.scraper.json"
