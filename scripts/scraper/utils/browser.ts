@@ -4,12 +4,8 @@
  * Shared Playwright browser factory with stealth + anti-bot hardening.
  */
 
-import { chromium } from 'playwright-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
-
-// Register stealth plugin once at module level
-chromium.use(StealthPlugin() as Parameters<typeof chromium.use>[0]);
 
 // ─── User-Agent pool ─────────────────────────────────────────────────────────
 const USER_AGENTS = [
