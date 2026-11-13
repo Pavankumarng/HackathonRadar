@@ -29,11 +29,11 @@ A discovery dashboard for active hackathons from **Unstop and Devpost**. Listing
 ## Architecture
 
 ```text
-Unstop ─────┐
-Devpost ────┼──> GitHub Actions scraper ──> Supabase PostgreSQL
-                         (historical only)     │
-                                                ▼
-                                      Next.js App Router
+Unstop ─────────────┐
+Devpost ────────────┴──> GitHub Actions scraper ──> Supabase PostgreSQL
+Existing HackCulture records ────────────────────┘       │
+                                                         ▼
+                                               Next.js App Router
                                                 │
                                                 ▼
                                       HackathonRadar UI
