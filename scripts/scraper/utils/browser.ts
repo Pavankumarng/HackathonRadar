@@ -1,37 +1,11 @@
 /**
  * scripts/scraper/utils/browser.ts
  *
- * Shared Playwright browser factory with stealth + anti-bot hardening.
+ * Shared Playwright browser factory with explicit, reproducible context settings.
  */
 
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
-
-// ─── User-Agent pool ─────────────────────────────────────────────────────────
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
-];
-
-export function randomUserAgent(): string {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-}
-
-/** Random delay between min and max ms */
-export async function randomDelay(minMs = 1500, maxMs = 4000): Promise<void> {
-  const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Exponential backoff delay: attempt 0=1s, 1=2s, 2=4s */
-export async function backoffDelay(attempt: number): Promise<void> {
-  const ms = Math.pow(2, attempt) * 1000;
-  console.log(`[browser] Backoff ${ms}ms before retry ${attempt + 1}`);
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // ─── Browser singleton ────────────────────────────────────────────────────────
 let _browser: Browser | null = null;
@@ -43,7 +17,6 @@ export async function getBrowser(): Promise<Browser> {
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
         '--disable-dev-shm-usage',
         '--window-size=1366,768',
       ],
@@ -63,33 +36,16 @@ export async function closeBrowser(): Promise<void> {
 
 export async function newContext(): Promise<BrowserContext> {
   const browser = await getBrowser();
-  const ua = randomUserAgent();
-  const ctx = await browser.newContext({
-    userAgent: ua,
+  return browser.newContext({
     viewport: { width: 1366, height: 768 },
     locale: 'en-US',
     timezoneId: 'Asia/Kolkata',
-    extraHTTPHeaders: {
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'DNT': '1',
-    },
   });
-  return ctx;
 }
 
 export async function newPage(ctx?: BrowserContext): Promise<{ page: Page; context: BrowserContext }> {
   const context = ctx ?? (await newContext());
   const page = await context.newPage();
-
-  // Mask navigator.webdriver
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    Object.defineProperty(window, 'chrome', { value: { runtime: {} }, configurable: true });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-  });
-
   return { page, context };
 }
 
