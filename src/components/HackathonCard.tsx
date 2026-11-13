@@ -6,18 +6,7 @@ interface HackathonCardProps {
   hackathon: Hackathon;
 }
 
-const HACKER_QUOTES = [
-  "Talk is cheap. Show me the code.",
-  "Programs must be written for people to read.",
-  "Any fool can write code that a computer can understand.",
-  "First, solve the problem. Then, write the code.",
-  "Experience is the name everyone gives to their mistakes.",
-  "Code is like humor. When you have to explain it, it's bad.",
-  "Fix the cause, not the symptom.",
-  "Make it work, make it right, make it fast.",
-  "Simplicity is the soul of efficiency.",
-  "Before software can be reusable it first has to be usable."
-];
+
 
 export default function HackathonCard({ hackathon }: HackathonCardProps) {
   const {
@@ -29,6 +18,7 @@ export default function HackathonCard({ hackathon }: HackathonCardProps) {
     team_size,
     banner_url,
     tags = [],
+    ai_summary,
     registration_end,
     rounds = [],
     venue_city,
@@ -88,9 +78,7 @@ export default function HackathonCard({ hackathon }: HackathonCardProps) {
   const roundedCount = Array.isArray(rounds) ? rounds.length : 0;
   const displayTags = (tags || []).slice(0, 3);
   
-  // Deterministic random quote based on title length
-  const quoteIndex = (title.length + (source_site.length)) % HACKER_QUOTES.length;
-  const summaryText = HACKER_QUOTES[quoteIndex];
+  const summaryText = ai_summary?.trim() || 'Open the official listing for eligibility, schedule and submission details.';
 
   return (
     <div className="group relative rounded-xl overflow-hidden flex flex-col h-full bg-bg-card border border-border transition-all duration-300 hover:border-accent-primary/50 hover:bg-bg-card-hover hover:shadow-[0_0_20px_var(--border-glow)]">
@@ -123,7 +111,7 @@ export default function HackathonCard({ hackathon }: HackathonCardProps) {
         <div className="flex gap-2 mb-3">
           <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded border tracking-wider flex items-center gap-1 ${getModeBadgeStyle(mode)}`}>
             {mode === 'online' ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-secondary)] animate-pulse" /> : null}
-            {mode || 'online'}
+            {mode || 'Unspecified'}
           </span>
           {roundedCount > 0 && (
             <span className="text-[10px] font-bold text-text-secondary bg-bg-base/50 border border-border px-2 py-0.5 rounded tracking-wider flex items-center gap-1">
@@ -147,7 +135,7 @@ export default function HackathonCard({ hackathon }: HackathonCardProps) {
         <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-[11px] text-text-muted font-mono mb-4 border-t border-border pt-4">
           <div className="flex items-center gap-1.5">
             <Users size={11} className="text-text-muted" />
-            <span className="truncate">{team_size || '1 - 4 members'}</span>
+            <span className="truncate">{team_size || 'Not specified'}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Calendar size={11} className="text-text-muted" />
