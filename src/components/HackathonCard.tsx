@@ -75,6 +75,23 @@ export default function HackathonCard({ hackathon }: HackathonCardProps) {
     }
   };
 
+  const trustedHosts: Record<string, string> = {
+    unstop: 'unstop.com',
+    devpost: 'devpost.com',
+    hackculture: 'hackculture.in',
+  };
+  const safeSourceUrl = (() => {
+    try {
+      const url = new URL(source_url);
+      const expectedHost = trustedHosts[source_site];
+      if (url.protocol !== 'https:' || !expectedHost) return '';
+      if (url.hostname !== expectedHost && !url.hostname.endsWith(`.${expectedHost}`)) return '';
+      return url.toString();
+    } catch {
+      return '';
+    }
+  })();
+
   const roundedCount = Array.isArray(rounds) ? rounds.length : 0;
   const displayTags = (tags || []).slice(0, 3);
   
@@ -165,7 +182,9 @@ export default function HackathonCard({ hackathon }: HackathonCardProps) {
 
           {/* Action Button */}
           <a
-            href={source_url}
+            href={safeSourceUrl || '#'}
+            onClick={(event) => { if (!safeSourceUrl) event.preventDefault(); }}
+            aria-disabled={!safeSourceUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-accent-primary hover:bg-[#6D28D9] transition-colors rounded-lg w-full sm:w-auto text-center shadow-[0_0_10px_var(--border-glow)]"
