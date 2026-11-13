@@ -19,7 +19,10 @@ export default function FilterBar() {
   const [searchVal, setSearchVal] = useState(searchParams.get('search') || '');
 
   useEffect(() => {
-    setSearchVal(searchParams.get('search') || '');
+    const frame = window.requestAnimationFrame(() => {
+      setSearchVal(searchParams.get('search') || '');
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [searchParams]);
 
   // Get active filters from URL
