@@ -18,7 +18,6 @@ import type { Database } from '../../src/types/database';
 import type { HackathonMode, SourceSite, ScrapedHackathon, RunStats, OrchestratorSummary } from './types';
 import { scrapeUnstop } from './scrapers/unstop';
 import { scrapeDevpost } from './scrapers/devpost';
-import { scrapeHackCulture } from './scrapers/hackculture';
 import { makeLogger } from './utils/logger';
 
 const logger = makeLogger('orchestrator');
@@ -68,14 +67,13 @@ async function withTimeout<T>(task: Promise<T>, ms: number, label: string): Prom
 const SCRAPERS: Array<{ name: SourceSite; run: () => Promise<ScrapedHackathon[]> }> = [
   { name: 'unstop', run: scrapeUnstop },
   { name: 'devpost', run: scrapeDevpost },
-  { name: 'hackculture', run: scrapeHackCulture },
 ];
 
 function expectedHost(source: SourceSite): string {
   switch (source) {
     case 'unstop': return 'unstop.com';
     case 'devpost': return 'devpost.com';
-    case 'hackculture': return 'hackculture.in';
+    case 'hackculture': return 'hackculture.io';
   }
 }
 
