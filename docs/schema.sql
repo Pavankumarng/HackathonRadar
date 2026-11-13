@@ -23,7 +23,9 @@ create table if not exists public.hackathons (
   venue_state text,
   scraped_at timestamptz default pg_catalog.now(),
   updated_at timestamptz default pg_catalog.now(),
-  is_active boolean default true
+  is_active boolean default true,
+  constraint hackathons_source_site_allowed check (source_site in ('unstop', 'devpost', 'hackculture')),
+  constraint hackathons_mode_allowed check (mode is null or mode in ('online', 'offline', 'hybrid'))
 );
 
 create index if not exists idx_hackathons_registration_end
