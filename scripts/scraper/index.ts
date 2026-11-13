@@ -26,6 +26,13 @@ const DRY_RUN = process.env.SCRAPE_DRY_RUN === 'true';
 const SCRAPER_TIMEOUT_MS = 120_000;
 const BATCH_SIZE = 20;
 
+type DatabaseJson = Database['public']['Tables']['hackathons']['Row']['rounds'];
+
+function serializeRounds(rounds: ScrapedHackathon['rounds']): DatabaseJson {
+  if (!rounds?.length) return [];
+  return JSON.parse(JSON.stringify(rounds)) as DatabaseJson;
+}
+
 type AdminClient = ReturnType<typeof getSupabaseAdmin>;
 
 function getSupabaseAdmin() {
@@ -144,7 +151,7 @@ async function upsertHackathons(
         ai_summary: record.ai_summary ?? previous?.ai_summary ?? null,
         registration_start: record.registration_start ?? previous?.registration_start ?? null,
         registration_end: record.registration_end,
-        rounds: record.rounds?.length ? record.rounds : previous?.rounds ?? [],
+        rounds: record.rounds?.length ? serializeRounds(record.rounds) : previous?.rounds ?? [],
         venue_name: record.venue_name ?? previous?.venue_name ?? null,
         venue_city: record.venue_city ?? previous?.venue_city ?? null,
         venue_state: record.venue_state ?? previous?.venue_state ?? null,
