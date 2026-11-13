@@ -177,7 +177,7 @@ export type HackathonUpdate = Partial<Omit<Hackathon, 'id'>>;
 
 export interface HackathonFilters {
   mode?: HackathonMode;
-  source_site?: SourceSite;
+  source_site?: SourceSite | SourceSite[];
   tags?: string[];
   search?: string;
   /** 'live' = registration open now; 'upcoming' = starts in the future; 'ended' = past */
