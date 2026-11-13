@@ -4,7 +4,7 @@
 
 ### *Every hackathon. One place.*
 
-A discovery dashboard for active hackathons from **Unstop, Devpost, and HackCulture**. Listings are collected by scheduled GitHub Actions, stored in Supabase, and displayed in a searchable Next.js interface.
+A discovery dashboard for active hackathons from **Unstop and Devpost**. Listings are collected by scheduled GitHub Actions, stored in Supabase, and displayed in a searchable Next.js interface.
 
 [![Live Demo](https://img.shields.io/badge/Live_Demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://hackathon-radar-alpha.vercel.app)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
@@ -17,7 +17,8 @@ A discovery dashboard for active hackathons from **Unstop, Devpost, and HackCult
 
 ## Features
 
-- Aggregated hackathon listings from Unstop, Devpost, and HackCulture.
+- Aggregated hackathon listings from Unstop and Devpost.
+- Historical HackCulture records remain viewable, but automated collection is paused pending an approved API or written permission.
 - Filters for event mode, source, keyword, and registration deadline.
 - Server-rendered, paginated listings backed by Supabase.
 - Registration countdowns, available event metadata, tags, and direct links to the source listing.
@@ -30,7 +31,7 @@ A discovery dashboard for active hackathons from **Unstop, Devpost, and HackCult
 ```text
 Unstop ─────┐
 Devpost ────┼──> GitHub Actions scraper ──> Supabase PostgreSQL
-HackCulture ┘                                   │
+                         (historical only)     │
                                                 ▼
                                       Next.js App Router
                                                 │
@@ -111,7 +112,7 @@ Expired listings are marked inactive; existing records are not automatically del
 
 ## Current source coverage
 
-The scheduled scraper currently registers three sources: **Unstop, Devpost, and HackCulture**. Other platform names may appear in older commits or visual styling, but they are not currently part of the active ingestion pipeline.
+The scheduled scraper currently collects from **Unstop and Devpost**. HackCulture records already stored in the database remain visible and filterable, but its automated scraper is disabled. HackCulture's published [Terms & Conditions](https://hackculture.io/legal/terms-and-conditions) prohibit scraping, reverse engineering, and using the platform to build competing services. Re-enable collection only after receiving written permission or an official API/integration agreement. This is an intentional compliance restriction, not a failed background job.
 
 ---
 
