@@ -4,7 +4,7 @@ import { makeLogger } from '../utils/logger';
 
 const logger = makeLogger('unstop');
 const SEARCH_ENDPOINT = 'https://unstop.com/api/public/opportunity/search-result';
-const PER_PAGE = 30;
+const PER_PAGE = 15;
 const MAX_PAGES = 12;
 const REQUEST_HEADERS: Record<string, string> = {
   'User-Agent': 'Mozilla/5.0 (compatible; HackathonRadar/1.0; +https://hackathon-radar-alpha.vercel.app)',
@@ -32,7 +32,14 @@ function resolveUnstopUrl(item: UnknownRecord): string | undefined {
   if (!candidate) return undefined;
 
   try {
-    const url = new URL(candidate, 'https://unstop.com');
+    const normalizedCandidate = /^https?:\/\//i.test(candidate)
+      ? candidate
+      : candidate.startsWith('/')
+        ? candidate
+        : candidate.startsWith('hackathons/')
+          ? `/${candidate}`
+          : `/hackathons/${candidate}`;
+    const url = new URL(normalizedCandidate, 'https://unstop.com');
     if (!['https:', 'http:'].includes(url.protocol)) return undefined;
     if (url.hostname !== 'unstop.com' && !url.hostname.endsWith('.unstop.com')) return undefined;
     url.protocol = 'https:';
