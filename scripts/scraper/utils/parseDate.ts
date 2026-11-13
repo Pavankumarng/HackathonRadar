@@ -54,7 +54,7 @@ function parseRawDate(raw: string): ParsedRawDate | null {
   const referenceDate = new Date(Date.UTC(2000, 0, 1));
   for (const format of FORMATS) {
     const value = parse(cleaned, format, referenceDate);
-    if (isValid(value)) return { date: value, explicitTimezone: false, dateOnly: true };
+    if (isValid(value)) {\n      const hasTime = /(?:\\d{1,2}:\\d{2}\\s*(?:am|pm)?|T\\d{2}:)/i.test(cleaned);\n      return { date: value, explicitTimezone: false, dateOnly: !hasTime };\n    }
   }
   return null;
 }
