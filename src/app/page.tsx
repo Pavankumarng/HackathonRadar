@@ -94,14 +94,8 @@ export default async function Home({ searchParams }: PageProps) {
 
     if (error) throw error;
     if (latestRow?.scraped_at) {
-      const diffMs = Math.max(0, Date.now() - new Date(latestRow.scraped_at).getTime());
-      if (Number.isFinite(diffMs)) {
-        const minutes = Math.floor(diffMs / 60_000);
-        const hours = Math.floor(minutes / 60);
-        lastUpdatedText = hours === 0
-          ? `Last updated: ${minutes} min${minutes === 1 ? '' : 's'} ago`
-          : `Last updated: ${hours} hour${hours === 1 ? '' : 's'} ago`;
-      }
+      // Display the stored UTC timestamp directly; server rendering stays pure.
+      lastUpdatedText = `Last scraped (UTC): ${latestRow.scraped_at.slice(0, 19).replace('T', ' ')}`;
     }
   } catch (error) {
     console.error('[Home] Failed to resolve latest scrape time:', error);
