@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://hackathon-radar-alpha.vercel.app"),
   title: "HackRadar — Find Every Hackathon in One Place",
-  description: "Hackathon listings from Unstop, Devpost, and HackCulture. Updated on a scheduled basis. No sign-up.",
+  description: "Hackathon listings from Unstop and Devpost. Updated on a scheduled basis. No sign-up.",
   openGraph: {
     title: "HackRadar — Find Every Hackathon in One Place",
     description: "Hackathon listings updated on a scheduled basis. No sign-up.",
