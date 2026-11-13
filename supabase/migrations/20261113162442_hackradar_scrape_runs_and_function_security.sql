@@ -1,5 +1,55 @@
--- Adds trusted scraper-run telemetry and hardens database functions.
--- scrape_runs is intentionally not readable by anon/authenticated users.
+-- HackathonRadar baseline + secure scraper telemetry.
+-- This is the first migration for a fresh Supabase project. The live project
+-- already had hackathons; IF NOT EXISTS keeps this migration safe there too.
+
+create table if not exists public.hackathons (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  source_site text not null,
+  source_url text not null unique,
+  mode text,
+  prize_pool text,
+  team_size text,
+  banner_url text,
+  tags text[],
+  ai_summary text,
+  registration_start timestamptz,
+  registration_end timestamptz not null,
+  rounds jsonb not null default '[]'::jsonb,
+  venue_name text,
+  venue_city text,
+  venue_state text,
+  scraped_at timestamptz default pg_catalog.now(),
+  updated_at timestamptz default pg_catalog.now(),
+  is_active boolean default true
+);
+
+create index if not exists idx_hackathons_registration_end
+  on public.hackathons (registration_end);
+create index if not exists idx_hackathons_source_site
+  on public.hackathons (source_site);
+create index if not exists idx_hackathons_is_active
+  on public.hackathons (is_active);
+create index if not exists idx_hackathons_mode
+  on public.hackathons (mode);
+
+alter table public.hackathons enable row level security;
+
+do $policy$
+begin
+  if not exists (
+    select 1 from pg_catalog.pg_policies
+     where schemaname = 'public'
+       and tablename = 'hackathons'
+       and policyname = 'Allow public read access'
+  ) then
+    create policy "Allow public read access"
+      on public.hackathons
+      for select
+      using (true);
+  end if;
+end
+$policy$;
 
 create table if not exists public.scrape_runs (
   id uuid primary key default gen_random_uuid(),
@@ -52,6 +102,21 @@ begin
   return new;
 end;
 $function$;
+
+do $trigger$
+begin
+  if not exists (
+    select 1 from pg_catalog.pg_trigger
+     where tgname = 'set_hackathons_updated_at'
+       and tgrelid = 'public.hackathons'::pg_catalog.regclass
+       and not tgisinternal
+  ) then
+    create trigger set_hackathons_updated_at
+      before update on public.hackathons
+      for each row execute function public.update_updated_at_column();
+  end if;
+end
+$trigger$;
 
 revoke all on function public.expire_old_hackathons() from public, anon, authenticated;
 revoke all on function public.expire_old_hackathons_count() from public, anon, authenticated;
