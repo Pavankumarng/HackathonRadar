@@ -53,6 +53,9 @@ jobs:
           npm audit --json > /tmp/npm-audit.json || true
           node -e "const a=require('/tmp/npm-audit.json'); console.log('npm audit summary:', JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) console.log(name + ': severity=' + v.severity + ', direct=' + v.isDirect + ', range=' + v.range + ', fix=' + JSON.stringify(v.fixAvailable));"
 
+      - name: Fail on high or critical npm vulnerabilities
+        run: npm audit --audit-level=high
+
       - name: Lint
         run: npm run lint
 
