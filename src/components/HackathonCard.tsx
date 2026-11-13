@@ -1,6 +1,7 @@
 import type { Hackathon } from '@/types/hackathon';
 import CountdownBadge from './CountdownBadge';
 import { ExternalLink, Calendar, Users, Layers, MapPin } from 'lucide-react';
+import { normalizeUnstopEventUrl } from '@/lib/urls/unstop';
 
 interface HackathonCardProps {
   hackathon: Hackathon;
@@ -80,6 +81,10 @@ export default function HackathonCard({ hackathon }: HackathonCardProps) {
     hackculture: 'hackculture.in',
   };
   const safeSourceUrl = (() => {
+    if (source_site === 'unstop') {
+      return normalizeUnstopEventUrl(source_url) ?? '';
+    }
+
     try {
       const url = new URL(source_url);
       const expectedHost = trustedHosts[source_site];
