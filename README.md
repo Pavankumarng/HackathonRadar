@@ -4,53 +4,115 @@
 
 ### *Every hackathon. One place.*
 
-An autonomous, real-time intelligence dashboard aggregating active hackathons across **Unstop, Devpost, HackerEarth, Devfolio, and HackCulture** — updated automatically on a 12-hour engine.
+A discovery dashboard for active hackathons from **Unstop, Devpost, and HackCulture**. Listings are collected by scheduled GitHub Actions, stored in Supabase, and displayed in a searchable Next.js interface.
 
-[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-hackathon--radar--alpha.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://hackathon-radar-alpha.vercel.app)
-[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
-[![Supabase](https://img.shields.io/badge/Supabase-Database-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com)
-[![Upstash Redis](https://img.shields.io/badge/Upstash-Redis-00E599?style=for-the-badge&logo=redis&logoColor=white)](https://upstash.com)
-[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-Automated-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://hackathon-radar-alpha.vercel.app)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-Scheduled-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
 
 </div>
 
 ---
 
-## ✨ Why HackathonRadar?
+## Features
 
-Finding hackathons across multiple platforms is tedious and noisy. **HackathonRadar** unifies active global hackathons into a single, lightning-fast command dashboard. 
+- Aggregated hackathon listings from Unstop, Devpost, and HackCulture.
+- Filters for event mode, source, keyword, and registration deadline.
+- Server-rendered, paginated listings backed by Supabase.
+- Registration countdowns, available event metadata, tags, and direct links to the source listing.
+- Scheduled scraper execution every 12 hours, with a manual workflow trigger.
+- Run telemetry in a private `scrape_runs` table.
+- Deadline validation: events without a verifiable deadline are skipped rather than assigned an invented date.
 
-No sign-ups required. No sponsored clutter. Just active hackathons with real-time countdowns and direct application routes.
-
----
-
-## ⚡ Key Features
-
-* **🤖 100% Autonomous Scraper Pipeline:** GitHub Actions execute headless stealth scrapers every **12 hours** to fetch fresh hackathons and upsert them directly to PostgreSQL.
-* **🧹 Smart Deadline Pruning:** Automatically filters out and purges expired events so you only see active opportunities.
-* **🎯 Precision Filtering:** Filter instantly by format (**Online**, **Offline/In-Person**, **Hybrid**) or keyword search.
-* **🛡️ Rate-Limited Edge Security:** Built-in sliding-window rate limiting via **Upstash Redis** to protect backend APIs against abuse.
-* **📊 Privacy-First Web Analytics:** Real-time visitor tracking integrated natively with **Vercel Analytics**.
-
----
-
-## 🏗️ System Architecture
+## Architecture
 
 ```text
-  [ Unstop / Devpost / HackerEarth / Devfolio / HackCulture ]
-                             │
-                  (Scheduled Cron Job - 12h)
-                             │
-                             ▼
-                 [ 🤖 GitHub Actions Scraper ]
-                             │
-                             ▼
-               [ 🐘 Supabase PostgreSQL DB ]
-                             │
-               (Indexed Queries / Auto-Pruning)
-                             │
-                             ▼
-     [ ⚡ Next.js App Router + Upstash Redis Rate Limiter ]
-                             │
-                             ▼
-               [ 🚀 Deployed on Vercel Edge ]
+Unstop ─────┐
+Devpost ────┼──> GitHub Actions scraper ──> Supabase PostgreSQL
+HackCulture ┘                                   │
+                                                ▼
+                                      Next.js App Router
+                                                │
+                                                ▼
+                                      HackathonRadar UI
+```
+
+## Requirements
+
+- Node.js 22
+- npm
+- A Supabase project
+- A Supabase service-role key for the scraper only
+- Optional Upstash Redis credentials for API rate limiting
+
+## Local setup
+
+1. Install dependencies:
+
+   ```bash
+   npm ci
+   ```
+
+2. Create `.env.local`:
+
+   ```dotenv
+   NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
+   SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+
+   # Optional API rate limiting
+   UPSTASH_REDIS_REST_URL=
+   UPSTASH_REDIS_REST_TOKEN=
+   ```
+
+   Never expose `SUPABASE_SERVICE_ROLE_KEY` through a `NEXT_PUBLIC_*` variable or commit it to Git.
+
+3. Start the application:
+
+   ```bash
+   npm run dev
+   ```
+
+## Scraper commands
+
+| Command | Purpose |
+|---|---|
+| `npm run scrape` | Run all configured scrapers and persist valid records |
+| `npm run scrape:dry` | Validate source data without database writes |
+| `npm run scrape:typecheck` | Typecheck scraper modules |
+| `npm run test:scraper` | Run deadline parser regression tests |
+| `npm run typecheck` | Typecheck the application |
+| `npm run lint` | Run ESLint |
+| `npm run build` | Create a production build |
+
+The scraper accepts explicit registration deadline fields only. It does not infer a registration deadline from an unrelated event end date. Source sites can change their public page/API structures, so a zero-result scrape should be checked in the workflow logs before assuming that no opportunities are available.
+
+## GitHub Actions configuration
+
+The scheduled workflow needs these repository secrets:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+The service-role key is only used by the server-side scraper workflow. It is not used by the browser application.
+
+The quality workflow runs lint, application and scraper typechecks, deadline tests, and a production build for pull requests and pushes to the main/quality branches.
+
+## Database
+
+The schema reference is in [`docs/schema.sql`](docs/schema.sql). Versioned database migrations live in [`supabase/migrations/`](supabase/migrations/).
+
+- `hackathons` stores the public event listings.
+- `scrape_runs` stores private execution summaries and errors. It has RLS enabled and is restricted to the service role.
+
+Expired listings are marked inactive; existing records are not automatically deleted.
+
+## Current source coverage
+
+The scheduled scraper currently registers three sources: **Unstop, Devpost, and HackCulture**. Other platform names may appear in older commits or visual styling, but they are not currently part of the active ingestion pipeline.
+
+---
+
+Built to make hackathon discovery less fragmented.
