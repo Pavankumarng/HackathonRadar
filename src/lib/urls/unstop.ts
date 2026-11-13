@@ -20,7 +20,7 @@ export function normalizeUnstopEventUrl(raw: string | null | undefined): string 
       url = new URL(`https://${candidate}`);
     } else if (candidate.startsWith('hackathons/')) {
       url = new URL(`/${candidate}`, 'https://unstop.com');
-    } else if (!candidate.includes('/')) {
+    } else if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(candidate)) {
       url = new URL(`/hackathons/${candidate}`, 'https://unstop.com');
     } else {
       return null;
@@ -39,7 +39,8 @@ export function normalizeUnstopEventUrl(raw: string | null | undefined): string 
     url.pathname = url.pathname.replace(/\/+$/, '');
 
     // An event URL must have a slug after the collection path.
-    if (!/^\/hackathons\/[^/]+$/i.test(url.pathname)) return null;
+    const eventPath = url.pathname.match(/^\/hackathons\/([^/]+)$/i);
+    if (!eventPath || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(eventPath[1])) return null;
 
     return url.toString();
   } catch {
