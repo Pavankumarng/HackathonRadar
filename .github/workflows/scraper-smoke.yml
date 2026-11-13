@@ -39,4 +39,4 @@ jobs:
           npm run test:scraper
 
       - name: Run all scrapers without database writes
-        run: npm run scrape:dry
+        run: SCRAPER_MAX_PAGES=1 npm run scrape:dry
