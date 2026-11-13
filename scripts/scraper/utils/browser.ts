@@ -9,7 +9,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import type { Browser, BrowserContext, Page } from 'playwright';
 
 // Register stealth plugin once at module level
-chromium.use(StealthPlugin());
+chromium.use(StealthPlugin() as Parameters<typeof chromium.use>[0]);
 
 // ─── User-Agent pool ─────────────────────────────────────────────────────────
 const USER_AGENTS = [
@@ -89,8 +89,7 @@ export async function newPage(ctx?: BrowserContext): Promise<{ page: Page; conte
   // Mask navigator.webdriver
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    // @ts-ignore
-    window.chrome = { runtime: {} };
+    Object.defineProperty(window, 'chrome', { value: { runtime: {} }, configurable: true });
     Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
     Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
   });
