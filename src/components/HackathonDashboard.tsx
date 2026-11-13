@@ -23,7 +23,6 @@ interface HackathonDashboardProps {
 
 export default function HackathonDashboard({
   initialHackathons,
-  initialTotal,
   initialPage,
   initialTotalPages,
   initialStats,
@@ -41,15 +40,6 @@ export default function HackathonDashboard({
 
   // Monitor URL search parameter changes and trigger fetch
   useEffect(() => {
-    // Skip fetch on initial render if URL params are empty (SSR loaded initial data matches)
-    const hasParams = searchParams.toString().length > 0;
-    if (!hasParams) {
-      setHackathons(initialHackathons);
-      setTotalPages(initialTotalPages);
-      setStats(initialStats);
-      return;
-    }
-
     let active = true;
     const controller = new AbortController();
 
@@ -83,7 +73,7 @@ export default function HackathonDashboard({
       active = false;
       controller.abort();
     };
-  }, [searchParams, initialHackathons, initialTotal, initialTotalPages, initialStats]);
+  }, [searchParams]);
 
   const requestedPage = Number(searchParams.get('page'));
   const activePage = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : initialPage;
