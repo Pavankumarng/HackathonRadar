@@ -10,7 +10,7 @@ export default function FilterBar() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   // Mobile drawer open state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -18,7 +18,7 @@ export default function FilterBar() {
   // Local state for search to allow immediate typing before debounce
   const [searchVal, setSearchVal] = useState(searchParams.get('search') || '');
 
-  // Get active filters from URL
+  useEffect(() => {\n    setSearchVal(searchParams.get('search') || '');\n  }, [searchParams]);\n\n  // Get active filters from URL
   const activeMode = searchParams.get('mode') || 'all';
   const activeSort = searchParams.get('sort') || 'deadline_asc';
   
