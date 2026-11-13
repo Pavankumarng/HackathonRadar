@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseDateRange, toDeadlineISO } from './parseDate';
+import { normalizeUnstopEventUrl } from '../../../src/lib/urls/unstop';
 
 test('parses a full month-to-month listing range into IST boundaries', () => {
   const result = parseDateRange('Oct 30 - Dec 04, 2026');
@@ -41,4 +42,47 @@ test('preserves explicit timezone offsets', () => {
 
 test('rejects impossible calendar dates', () => {
   assert.equal(parseDateRange('Feb 30 - Mar 05, 2027'), null);
+});
+
+const unstopSlug = 'data-sprint-20-anveshan-nie-1807080';
+const canonicalUnstopUrl = `https://unstop.com/hackathons/${unstopSlug}`;
+
+test('normalizes duplicated Unstop collection path from scraper payloads', () => {
+  assert.equal(
+    normalizeUnstopEventUrl(`hackathons/hackathons/${unstopSlug}`),
+    canonicalUnstopUrl,
+  );
+});
+
+test('normalizes repeated Unstop path prefixes regardless of count', () => {
+  assert.equal(
+    normalizeUnstopEventUrl(`/hackathons/hackathons/hackathons/${unstopSlug}`),
+    canonicalUnstopUrl,
+  );
+});
+
+test('normalizes absolute and www Unstop links to canonical HTTPS URLs', () => {
+  assert.equal(
+    normalizeUnstopEventUrl(`http://www.unstop.com/hackathons/hackathons/${unstopSlug}?ref=home#top`),
+    canonicalUnstopUrl,
+  );
+});
+
+test('preserves already canonical Unstop event detail URLs', () => {
+  assert.equal(normalizeUnstopEventUrl(canonicalUnstopUrl), canonicalUnstopUrl);
+});
+
+test('adds the event path to an Unstop opportunity slug', () => {
+  assert.equal(normalizeUnstopEventUrl(unstopSlug), canonicalUnstopUrl);
+});
+
+test('rejects Unstop home, collection and API URLs', () => {
+  assert.equal(normalizeUnstopEventUrl('https://unstop.com/'), null);
+  assert.equal(normalizeUnstopEventUrl('https://unstop.com/hackathons'), null);
+  assert.equal(normalizeUnstopEventUrl('https://unstop.com/api/public/opportunity/123'), null);
+});
+
+test('rejects off-domain and unsafe Unstop URLs', () => {
+  assert.equal(normalizeUnstopEventUrl('https://example.com/hackathons/event'), null);
+  assert.equal(normalizeUnstopEventUrl('javascript:alert(1)'), null);
 });

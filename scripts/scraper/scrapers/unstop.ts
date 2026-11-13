@@ -1,6 +1,7 @@
 import type { ScrapedHackathon, Round, HackathonMode } from '../types';
 import { toDeadlineISO, toISO } from '../utils/parseDate';
 import { makeLogger } from '../utils/logger';
+import { normalizeUnstopEventUrl } from '../../../src/lib/urls/unstop';
 
 const logger = makeLogger('unstop');
 const SEARCH_ENDPOINT = 'https://unstop.com/api/public/opportunity/search-result';
@@ -28,27 +29,17 @@ function text(value: unknown): string | undefined {
 }
 
 function resolveUnstopUrl(item: UnknownRecord): string | undefined {
-  const candidate = text(item.public_url) || text(item.seo_url) || text(item.url);
-  if (!candidate) return undefined;
+  // Some API records contain both display and SEO URLs. Prefer the first
+  // candidate that resolves to a real event page, not merely the first string.
+  const candidates = [item.public_url, item.seo_url, item.url]
+    .map(text)
+    .filter((candidate): candidate is string => Boolean(candidate));
 
-  try {
-    const normalizedCandidate = /^https?:\/\//i.test(candidate)
-      ? candidate
-      : candidate.startsWith('/')
-        ? candidate
-        : candidate.startsWith('hackathons/')
-          ? `/${candidate}`
-          : `/hackathons/${candidate}`;
-    const url = new URL(normalizedCandidate, 'https://unstop.com');
-    if (!['https:', 'http:'].includes(url.protocol)) return undefined;
-    if (url.hostname !== 'unstop.com' && !url.hostname.endsWith('.unstop.com')) return undefined;
-    url.protocol = 'https:';
-    url.search = '';
-    url.hash = '';
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    return undefined;
+  for (const candidate of candidates) {
+    const normalized = normalizeUnstopEventUrl(candidate);
+    if (normalized) return normalized;
   }
+  return undefined;
 }
 
 function extractMode(item: UnknownRecord): HackathonMode | undefined {
