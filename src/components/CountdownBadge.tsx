@@ -14,7 +14,12 @@ export default function CountdownBadge({ deadline }: CountdownBadgeProps) {
   useEffect(() => {
     function updateCountdown() {
       const deadlineDate = parseISO(deadline);
-      if (!isValid(deadlineDate)) {\n        setTimeLeft('Deadline unavailable');\n        setColorClass('text-zinc-400 border-zinc-500/30 bg-zinc-950/20');\n        return;\n      }\n      const totalSeconds = differenceInSeconds(deadlineDate, new Date());
+      if (!isValid(deadlineDate)) {
+        setTimeLeft('Deadline unavailable');
+        setColorClass('text-zinc-400 border-zinc-500/30 bg-zinc-950/20');
+        return;
+      }
+      const totalSeconds = differenceInSeconds(deadlineDate, new Date());
 
       if (totalSeconds <= 0) {
         setTimeLeft('Closed');
