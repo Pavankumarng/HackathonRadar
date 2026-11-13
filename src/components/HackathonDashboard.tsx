@@ -123,7 +123,7 @@ export default function HackathonDashboard({
             Every hackathon.<br />One place.
           </h1>
           <p className="text-sm md:text-base text-zinc-400 leading-relaxed">
-            Live listings from Unstop, Devpost & HackCulture — refreshed every 12 hours.
+            Live listings from Unstop & Devpost — refreshed every 12 hours.
           </p>
         </div>
 
@@ -217,10 +217,10 @@ export default function HackathonDashboard({
       <footer className="w-full border-t border-zinc-900/60 mt-24 py-8 px-4 text-center text-[10px] font-mono text-zinc-650 tracking-wider">
         <div className="max-w-6xl mx-auto space-y-1">
           <p className="text-zinc-500 uppercase">
-            HackRadar · Data aggregated from Unstop, Devpost & HackCulture
+            HackRadar · Data from Unstop, Devpost & historical HackCulture listings
           </p>
           <p className="text-zinc-600">
-            System running: Node Scraper (Playwright stealth module) · Updates automatically every 12 hours
+            System running: scheduled API ingestion · Updates automatically every 12 hours
           </p>
         </div>
       </footer>
