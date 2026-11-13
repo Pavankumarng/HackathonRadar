@@ -5,6 +5,7 @@ import { useEffect, useState, useTransition, useCallback } from 'react';
 import { Search, X, SlidersHorizontal, Sliders, CheckCircle } from 'lucide-react';
 
 const SOURCES = ['unstop', 'devpost', 'hackculture'] as const;
+type Source = (typeof SOURCES)[number];
 
 export default function FilterBar() {
   const router = useRouter();
@@ -90,7 +91,7 @@ export default function FilterBar() {
   };
 
   // Source toggle handler (multi-select)
-  const handleSourceToggle = (source: string) => {
+  const handleSourceToggle = (source: Source) => {
     let nextSources: string[];
     if (activeSources.includes(source)) {
       nextSources = activeSources.filter((s) => s !== source);
