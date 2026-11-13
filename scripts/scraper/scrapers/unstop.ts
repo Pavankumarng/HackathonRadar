@@ -29,8 +29,17 @@ function text(value: unknown): string | undefined {
 }
 
 function resolveUnstopUrl(item: UnknownRecord): string | undefined {
-  const candidate = text(item.public_url) || text(item.seo_url) || text(item.url);
-  return normalizeUnstopEventUrl(candidate) ?? undefined;
+  // Some API records contain both display and SEO URLs. Prefer the first
+  // candidate that resolves to a real event page, not merely the first string.
+  const candidates = [item.public_url, item.seo_url, item.url]
+    .map(text)
+    .filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    const normalized = normalizeUnstopEventUrl(candidate);
+    if (normalized) return normalized;
+  }
+  return undefined;
 }
 
 function extractMode(item: UnknownRecord): HackathonMode | undefined {
