@@ -37,6 +37,13 @@ create index if not exists idx_hackathons_mode
 
 alter table public.hackathons enable row level security;
 
+-- Public users can discover listings but cannot modify ingestion data.
+revoke insert, update, delete, truncate, references, trigger
+  on table public.hackathons
+  from public, anon, authenticated;
+grant select on table public.hackathons to anon, authenticated;
+grant all on table public.hackathons to service_role;
+
 do $policy$
 begin
   if not exists (
@@ -106,7 +113,7 @@ begin
 end;
 $function$;
 
-revoke all on function public.expire_old_hackathons() from public, anon, authenticated;
+revoke all on function public.update_updated_at_column() from public, anon, authenticated;\nrevoke all on function public.expire_old_hackathons() from public, anon, authenticated;
 revoke all on function public.expire_old_hackathons_count() from public, anon, authenticated;
 grant execute on function public.expire_old_hackathons() to service_role;
 grant execute on function public.expire_old_hackathons_count() to service_role;
