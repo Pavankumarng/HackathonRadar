@@ -1,0 +1,42 @@
+name: Scraper Smoke Test
+
+on:
+  push:
+    branches:
+      - codex/hackathonradar-quality-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scraper-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck and test date parsing
+        run: |
+          npm run scrape:typecheck
+          npm run test:scraper
+
+      - name: Run all scrapers without database writes
+        run: SCRAPER_MAX_PAGES=1 npm run scrape:dry

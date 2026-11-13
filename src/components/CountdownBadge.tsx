@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { differenceInSeconds, parseISO } from 'date-fns';
+import { differenceInSeconds, isValid, parseISO } from 'date-fns';
 
 interface CountdownBadgeProps {
   deadline: string;
@@ -14,6 +14,11 @@ export default function CountdownBadge({ deadline }: CountdownBadgeProps) {
   useEffect(() => {
     function updateCountdown() {
       const deadlineDate = parseISO(deadline);
+      if (!isValid(deadlineDate)) {
+        setTimeLeft('Deadline unavailable');
+        setColorClass('text-zinc-400 border-zinc-500/30 bg-zinc-950/20');
+        return;
+      }
       const totalSeconds = differenceInSeconds(deadlineDate, new Date());
 
       if (totalSeconds <= 0) {

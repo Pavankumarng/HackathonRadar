@@ -1,6 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import { createServerAnonClient } from '@/lib/supabase';
-import type { Hackathon, HackathonFilters } from '@/types/hackathon';
+import type { Hackathon, HackathonFilters, SourceSite } from '@/types/hackathon';
 
 export interface HackathonsResponse {
   hackathons: Hackathon[];
@@ -16,143 +16,137 @@ export interface HackathonStats {
   sources: Record<string, number>;
 }
 
-/**
- * Fetch filtered, paginated hackathons from Supabase (server-side).
- * Ideal for Server Components and generateStaticParams.
- */
+const SOURCES: SourceSite[] = ['unstop', 'devpost', 'hackculture'];
+const DEFAULT_LIMIT = 24;
+const MAX_LIMIT = 48;
+const MAX_PAGE = 100_000;
+
+function normalizedSources(source: HackathonFilters['source_site']): SourceSite[] {
+  if (!source) return [];
+  return [...new Set(Array.isArray(source) ? source : [source])].filter((item) =>
+    SOURCES.includes(item),
+  );
+}
+
 export async function getHackathons(filters: HackathonFilters = {}): Promise<HackathonsResponse> {
   const mode = filters.mode;
-  const source = filters.source_site;
-  const search = filters.search;
+  const sources = normalizedSources(filters.source_site);
+  const search = filters.search?.trim().slice(0, 100);
   const sort = filters.sort || 'deadline_asc';
-  const page = Math.max(1, filters.page || 1);
-  const limit = Math.min(48, Math.max(1, filters.limit || 24));
+  const pageValue = Number.isFinite(filters.page) ? Math.floor(filters.page as number) : 1;
+  const page = Math.min(MAX_PAGE, Math.max(1, pageValue));
+  const limitValue = Number.isFinite(filters.limit) ? Math.floor(filters.limit as number) : DEFAULT_LIMIT;
+  const limit = Math.min(MAX_LIMIT, Math.max(1, limitValue));
 
   const supabase = createServerAnonClient();
-  
+  const nowIso = new Date().toISOString();
   let query = supabase
     .from('hackathons')
-    .select('*', { count: 'exact' });
+    .select('*', { count: 'exact' })
+    .eq('is_active', true)
+    .gt('registration_end', nowIso);
 
-  // Standard filters for active and open hackathons
-  const nowIso = new Date().toISOString();
-  query = query.eq('is_active', true).gt('registration_end', nowIso);
+  if (mode) query = query.eq('mode', mode);
+  if (sources.length === 1) query = query.eq('source_site', sources[0]);
+  else if (sources.length > 1) query = query.in('source_site', sources);
 
-  if (mode) {
-    query = query.eq('mode', mode);
-  }
-  if (source) {
-    query = query.eq('source_site', source);
-  }
-  if (search) {
-    query = query.ilike('title', `%${search}%`);
-  }
+  if (search) query = query.ilike('title', `%${search.replace(/[\\%_]/g, '\\$&')}%`);
 
-  // Sorting
-  if (sort === 'deadline_asc') {
-    query = query.order('registration_end', { ascending: true });
-  } else if (sort === 'deadline_desc') {
+  if (sort === 'deadline_desc') {
     query = query.order('registration_end', { ascending: false });
   } else if (sort === 'newest') {
-    query = query.order('scraped_at', { ascending: false });
+    query = query.order('scraped_at', { ascending: false, nullsFirst: false });
+  } else {
+    query = query.order('registration_end', { ascending: true });
   }
 
-  // Pagination
   const from = (page - 1) * limit;
-  const to = from + limit - 1;
-  query = query.range(from, to);
-
-  const { data, count, error } = await query;
-
+  const { data, count, error } = await query.range(from, from + limit - 1);
   if (error) {
     console.error('[getHackathons] Supabase error:', error.message);
-    throw new Error(`Failed to retrieve hackathons: ${error.message}`);
+    throw new Error('Failed to retrieve hackathons');
   }
 
-  const total = count || 0;
-  const totalPages = Math.ceil(total / limit);
-
+  const total = count ?? 0;
   return {
-    hackathons: (data as Hackathon[]) || [],
+    hackathons: (data ?? []) as Hackathon[],
     total,
     page,
-    totalPages,
+    totalPages: Math.ceil(total / limit),
   };
 }
 
-/**
- * Fetch a single hackathon detail by ID (UUID) or by resolving a slug string.
- */
 export async function getHackathonBySlug(slug: string): Promise<Hackathon | null> {
   const supabase = createServerAnonClient();
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  let query = supabase.from('hackathons').select('*');
+  if (!uuidRegex.test(slug) && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(slug)) return null;
 
+  let query = supabase.from('hackathons').select('*');
   if (uuidRegex.test(slug)) {
-    // If it's a valid UUID, fetch by ID
     query = query.eq('id', slug);
   } else {
-    // Fallback: match by title converting slug hyphens back to spaces or looking for URL match
     const titleGuess = slug.replace(/-/g, ' ');
-    query = query.or(`title.ilike.%${titleGuess}%,source_url.ilike.%${slug}%`);
+    query = query.or(`title.ilike.${titleGuess},source_url.ilike.%${slug}%`);
   }
 
-  const { data, error } = await query.limit(1).maybeSingle();
+  const { data, error } = await query
+    .eq('is_active', true)
+    .gt('registration_end', new Date().toISOString())
+    .limit(1)
+    .maybeSingle();
 
   if (error) {
     console.error('[getHackathonBySlug] Supabase error:', error.message);
     return null;
   }
-
-  return (data as Hackathon) || null;
+  return (data as Hackathon | null) ?? null;
 }
 
 /**
- * Fetch and calculate aggregation statistics for all active hackathons.
- * Caches results with Next.js unstable_cache for 1 hour to optimize performance.
+ * Aggregated counters use exact HEAD counts rather than downloading every
+ * active row into the server process.
  */
 export const getHackathonStats = unstable_cache(
   async (): Promise<HackathonStats> => {
     const supabase = createServerAnonClient();
     const nowIso = new Date().toISOString();
-
-    const { data, error } = await supabase
-      .from('hackathons')
-      .select('mode, source_site')
-      .eq('is_active', true)
-      .gt('registration_end', nowIso);
-
-    if (error) {
-      console.error('[getHackathonStats] Supabase error:', error.message);
-      throw new Error(`Failed to retrieve statistics: ${error.message}`);
-    }
-
-    const stats: HackathonStats = {
-      total: data?.length || 0,
-      online: 0,
-      offline: 0,
-      sources: {},
+    const countFor = async (options?: { mode?: string; source?: SourceSite }) => {
+      let query = supabase
+        .from('hackathons')
+        .select('id', { count: 'exact', head: true })
+        .eq('is_active', true)
+        .gt('registration_end', nowIso);
+      if (options?.mode) query = query.eq('mode', options.mode);
+      if (options?.source) query = query.eq('source_site', options.source);
+      return query;
     };
 
-    if (data) {
-      for (const item of data) {
-        // Mode counters
-        if (item.mode === 'online') {
-          stats.online++;
-        } else if (item.mode === 'offline' || item.mode === 'hybrid') {
-          // Both count as physical/offline presence
-          stats.offline++;
-        }
+    const [totalResult, onlineResult, offlineResult, hybridResult, ...sourceResults] = await Promise.all([
+      countFor(),
+      countFor({ mode: 'online' }),
+      countFor({ mode: 'offline' }),
+      countFor({ mode: 'hybrid' }),
+      ...SOURCES.map((source) => countFor({ source })),
+    ]);
 
-        // Source counters
-        const src = item.source_site;
-        stats.sources[src] = (stats.sources[src] || 0) + 1;
-      }
+    const results = [totalResult, onlineResult, offlineResult, hybridResult, ...sourceResults];
+    const failed = results.find((result) => result.error);
+    if (failed?.error) {
+      console.error('[getHackathonStats] Supabase error:', failed.error.message);
+      throw new Error('Failed to retrieve hackathon statistics');
     }
 
-    return stats;
+    const sources = Object.fromEntries(
+      SOURCES.map((source, index) => [source, sourceResults[index].count ?? 0]),
+    );
+    return {
+      total: totalResult.count ?? 0,
+      online: onlineResult.count ?? 0,
+      offline: (offlineResult.count ?? 0) + (hybridResult.count ?? 0),
+      sources,
+    };
   },
-  ['hackathon-stats'],
-  { revalidate: 60, tags: ['stats'] }
+  ['hackathon-stats-v2'],
+  { revalidate: 60, tags: ['stats'] },
 );

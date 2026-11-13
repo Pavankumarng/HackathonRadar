@@ -1,5 +1,5 @@
 import { Laptop, MapPin, Calendar, CheckCircle2 } from 'lucide-react';
-import { parseISO, isAfter, isBefore } from 'date-fns';
+import { parseISO, isAfter, isBefore, isValid } from 'date-fns';
 import type { Round } from '@/types/hackathon';
 
 interface RoundsTimelineProps {
@@ -22,6 +22,7 @@ export default function RoundsTimeline({ rounds }: RoundsTimelineProps) {
     try {
       const start = parseISO(startStr);
       const end = parseISO(endStr);
+      if (!isValid(start) || !isValid(end)) return 'Date unavailable';
       const startFmt = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const endFmt = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       return `${startFmt} — ${endFmt}`;
@@ -35,6 +36,7 @@ export default function RoundsTimeline({ rounds }: RoundsTimelineProps) {
     try {
       const start = parseISO(startStr);
       const end = parseISO(endStr);
+      if (!isValid(start) || !isValid(end)) return 'unknown';
 
       if (isAfter(start, now)) {
         return 'upcoming';
@@ -56,7 +58,7 @@ export default function RoundsTimeline({ rounds }: RoundsTimelineProps) {
         const isCompleted = status === 'completed';
 
         return (
-          <div key={index} className="relative group">
+          <div key={`${round.name}-${round.start_date}-${index}`} className="relative group">
             
             {/* Timeline Dot Indicator */}
             <span className={`absolute -left-[31px] top-1.5 h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all ${

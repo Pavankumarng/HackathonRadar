@@ -5,12 +5,13 @@ import { useEffect, useState, useTransition, useCallback } from 'react';
 import { Search, X, SlidersHorizontal, Sliders, CheckCircle } from 'lucide-react';
 
 const SOURCES = ['unstop', 'devpost', 'hackculture'] as const;
+type Source = (typeof SOURCES)[number];
 
 export default function FilterBar() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   // Mobile drawer open state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -18,14 +19,24 @@ export default function FilterBar() {
   // Local state for search to allow immediate typing before debounce
   const [searchVal, setSearchVal] = useState(searchParams.get('search') || '');
 
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setSearchVal(searchParams.get('search') || '');
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchParams]);
+
   // Get active filters from URL
-  const activeMode = searchParams.get('mode') || 'all';
-  const activeSort = searchParams.get('sort') || 'deadline_asc';
+  const requestedMode = searchParams.get('mode') || 'all';
+  const activeMode = ['all', 'online', 'offline', 'hybrid'].includes(requestedMode) ? requestedMode : 'all';
+  const requestedSort = searchParams.get('sort') || 'deadline_asc';
+  const activeSort = ['deadline_asc', 'deadline_desc', 'newest'].includes(requestedSort) ? requestedSort : 'deadline_asc';
   
-  // Parse multi-select sources from URL (e.g. source=devfolio,unstop)
-  const activeSources = searchParams.get('source') 
-    ? searchParams.get('source')!.split(',')
-    : [];
+  // Parse supported multi-select sources from URL (e.g. source=unstop,devpost)
+  const activeSources = (searchParams.get('source') || '')
+    .split(',')
+    .map((source) => source.trim())
+    .filter((source): source is typeof SOURCES[number] => SOURCES.includes(source as typeof SOURCES[number]));
 
   // Count active filters
   let activeFilterCount = 0;
@@ -80,7 +91,7 @@ export default function FilterBar() {
   };
 
   // Source toggle handler (multi-select)
-  const handleSourceToggle = (source: string) => {
+  const handleSourceToggle = (source: Source) => {
     let nextSources: string[];
     if (activeSources.includes(source)) {
       nextSources = activeSources.filter((s) => s !== source);

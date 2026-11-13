@@ -101,7 +101,7 @@ export interface Hackathon {
    * JSONB array of Round objects.
    * Defaults to [].
    */
-  rounds: Round[];
+  rounds: Round[] | null;
 
   // --- Venue (offline / hybrid) ---
 
@@ -117,17 +117,17 @@ export interface Hackathon {
   // --- Meta ---
 
   /** When this record was first scraped (set to NOW() on insert) */
-  scraped_at: string;
+  scraped_at: string | null;
 
   /** When this record was last updated */
-  updated_at: string;
+  updated_at: string | null;
 
   /**
    * Whether this hackathon is still active.
    * Set to false by the expire_old_hackathons() scheduled function
    * when registration_end < NOW().
    */
-  is_active: boolean;
+  is_active: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,7 +177,7 @@ export type HackathonUpdate = Partial<Omit<Hackathon, 'id'>>;
 
 export interface HackathonFilters {
   mode?: HackathonMode;
-  source_site?: SourceSite;
+  source_site?: SourceSite | SourceSite[];
   tags?: string[];
   search?: string;
   /** 'live' = registration open now; 'upcoming' = starts in the future; 'ended' = past */

@@ -1,0 +1,75 @@
+name: Quality Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, typecheck, tests and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Refresh only the lockfile using non-breaking fixes. The refreshed
+      # lockfile is uploaded so it can be reviewed and committed separately.
+      - name: Refresh npm lockfile with compatible fixes
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit
+          npm audit fix --package-lock-only --ignore-scripts || true
+
+      - name: Upload refreshed lockfile for review
+        uses: actions/upload-artifact@v6
+        with:
+          name: hackathonradar-package-lock
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Install refreshed locked dependencies
+        run: npm ci
+
+      - name: Report dependency audit
+        shell: bash
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          node -e "const a=require('/tmp/npm-audit.json'); console.log('npm audit summary:', JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) console.log(name + ': severity=' + v.severity + ', direct=' + v.isDirect + ', range=' + v.range + ', fix=' + JSON.stringify(v.fixAvailable));"
+
+      - name: Fail on high or critical npm vulnerabilities
+        run: npm audit --audit-level=high
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck application
+        run: npm run typecheck
+
+      - name: Typecheck scraper
+        run: npm run scrape:typecheck
+
+      - name: Test scraper date parsing
+        run: npm run test:scraper
+
+      - name: Build production application
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
