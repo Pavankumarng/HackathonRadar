@@ -157,7 +157,8 @@ export async function scrapeDevpost(): Promise<ScrapedHackathon[]> {
       });
     }
 
-    if ((totalCount && perPage && page * perPage >= totalCount) || items.length < (perPage || 40)) break;
+    if (totalCount && perPage && page * perPage >= totalCount) break;
+    if (perPage && items.length < perPage) break;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
 
