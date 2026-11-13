@@ -65,7 +65,7 @@ jobs:
       - name: Typecheck scraper
         run: npm run scrape:typecheck
 
-      - name: Test scraper date parsing
+      - name: Test scraper date and URL parsing
         run: npm run test:scraper
 
       - name: Build production application
