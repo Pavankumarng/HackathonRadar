@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import type { ScrapedHackathon, HackathonMode } from '../types';
 import { toDeadlineISO } from '../utils/parseDate';
-import { newPage } from '../utils/browser';
+import { closeBrowser, newPage } from '../utils/browser';
 import { makeLogger } from '../utils/logger';
 
 const logger = makeLogger('hackculture');
@@ -111,6 +111,9 @@ export async function scrapeHackCulture(): Promise<ScrapedHackathon[]> {
       if (context) await context.close().catch(() => undefined);
     }
   }
+
+  // Close the shared Chromium process so the CLI/CI process can exit cleanly.
+  await closeBrowser().catch(() => undefined);
 
   if (results.size === 0 && lastNavigationError) {
     throw lastNavigationError instanceof Error
