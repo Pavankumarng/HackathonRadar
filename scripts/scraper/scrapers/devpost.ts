@@ -4,7 +4,7 @@ import { makeLogger } from '../utils/logger';
 
 const logger = makeLogger('devpost');
 const API_URL = 'https://devpost.com/api/hackathons';
-const MAX_PAGES = 12;
+const MAX_PAGES = Math.max(1, Math.min(12, Number(process.env.SCRAPER_MAX_PAGES) || 12));
 
 type UnknownRecord = Record<string, unknown>;
 
