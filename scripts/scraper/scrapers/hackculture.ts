@@ -62,6 +62,12 @@ export async function scrapeHackCulture(): Promise<ScrapedHackathon[]> {
       }
 
       await page.waitForTimeout(1800);
+      // Trigger lazy-loaded event cards; cap scrolls to keep this scrape bounded.
+      for (let step = 0; step < 6; step++) {
+        await page.evaluate(() => window.scrollBy(0, window.innerHeight * 1.5));
+        await page.waitForTimeout(450);
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
       const html = await page.content();
       const $ = cheerio.load(html);
       const baseUrl = new URL(targetUrl).origin;
