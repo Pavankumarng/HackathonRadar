@@ -23,13 +23,16 @@ export default function FilterBar() {
   }, [searchParams]);
 
   // Get active filters from URL
-  const activeMode = searchParams.get('mode') || 'all';
-  const activeSort = searchParams.get('sort') || 'deadline_asc';
+  const requestedMode = searchParams.get('mode') || 'all';
+  const activeMode = ['all', 'online', 'offline', 'hybrid'].includes(requestedMode) ? requestedMode : 'all';
+  const requestedSort = searchParams.get('sort') || 'deadline_asc';
+  const activeSort = ['deadline_asc', 'deadline_desc', 'newest'].includes(requestedSort) ? requestedSort : 'deadline_asc';
   
-  // Parse multi-select sources from URL (e.g. source=devfolio,unstop)
-  const activeSources = searchParams.get('source') 
-    ? searchParams.get('source')!.split(',')
-    : [];
+  // Parse supported multi-select sources from URL (e.g. source=unstop,devpost)
+  const activeSources = (searchParams.get('source') || '')
+    .split(',')
+    .map((source) => source.trim())
+    .filter((source): source is typeof SOURCES[number] => SOURCES.includes(source as typeof SOURCES[number]));
 
   // Count active filters
   let activeFilterCount = 0;
