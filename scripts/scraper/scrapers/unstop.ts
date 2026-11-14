@@ -202,13 +202,15 @@ export async function scrapeUnstop(): Promise<ScraperBatch> {
   let totalCount: number | undefined;
   let paginationMetadataPresent = false;
   let integrityError = false;
+  let sawConfirmedEmptyEnd = false;
+  let earlyEmptyPage = false;
   let completionReason = 'maximum page limit reached';
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const response = await fetchPage(page);
     const { items } = response;
-    lastPage = response.lastPage;
-    totalCount = response.totalCount;
+    lastPage = response.lastPage ?? lastPage;
+    totalCount = response.totalCount ?? totalCount;
     paginationMetadataPresent = Boolean(lastPage || totalCount !== undefined);
     pagesFetched++;
     observedCount += items.length;
@@ -216,7 +218,13 @@ export async function scrapeUnstop(): Promise<ScraperBatch> {
 
     logger.info(`Unstop page ${page}: received ${items.length} records`);
     if (items.length === 0) {
-      completionReason = page === 1 ? 'empty first page; refusing to reconcile' : 'empty final page';
+      if (page > 1 && (lastPage === undefined || page > lastPage)) {
+        sawConfirmedEmptyEnd = true;
+        completionReason = 'confirmed empty page after the advertised final page';
+      } else {
+        earlyEmptyPage = true;
+        completionReason = 'unexpected empty page before advertised final page; refusing to reconcile';
+      }
       break;
     }
 
@@ -267,17 +275,29 @@ export async function scrapeUnstop(): Promise<ScraperBatch> {
       });
     }
 
-    if (response.lastPage && page >= response.lastPage) {
-      completionReason = 'reached advertised last page';
+    const reachedAdvertisedLastPage = lastPage !== undefined && page >= lastPage;
+    const reachedAdvertisedTotal = totalCount !== undefined && observedCount >= totalCount;
+
+    if (reachedAdvertisedLastPage && (totalCount === undefined || reachedAdvertisedTotal)) {
+      completionReason = 'reached consistent advertised final page and total';
       break;
     }
-    if (response.totalCount !== undefined && observedCount >= response.totalCount) {
+    if (reachedAdvertisedTotal && (lastPage === undefined || page >= lastPage)) {
       completionReason = 'reached advertised total count';
       break;
     }
-    if (!response.lastPage && response.totalCount === undefined && items.length < PER_PAGE) {
-      completionReason = 'received a short final page';
+    if (
+      !paginationMetadataPresent &&
+      items.length < PER_PAGE
+    ) {
+      completionReason = 'received a short final page without pagination metadata';
       break;
+    }
+
+    if (reachedAdvertisedLastPage && totalCount !== undefined && !reachedAdvertisedTotal) {
+      logger.warn(
+        `Unstop pagination metadata conflicts: page ${page}/${lastPage}, observed ${observedCount}/advertised ${totalCount}; probing one or more additional pages before reconciliation`,
+      );
     }
 
     await new Promise((resolve) => setTimeout(resolve, 350));
@@ -287,7 +307,9 @@ export async function scrapeUnstop(): Promise<ScraperBatch> {
     (lastPage !== undefined ? pagesFetched >= lastPage : true) &&
     (totalCount !== undefined ? observedCount >= totalCount : true);
   const shortPageComplete = lastItemsCount < PER_PAGE && !paginationMetadataPresent;
-  const paginationComplete = metadataComplete || shortPageComplete;
+  const paginationComplete =
+    !earlyEmptyPage &&
+    (metadataComplete || shortPageComplete || sawConfirmedEmptyEnd);
   const snapshotComplete =
     observedCount > 0 &&
     paginationComplete &&
