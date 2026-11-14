@@ -4,6 +4,16 @@ on:
   schedule:
     - cron: '0 */12 * * *'
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/scraper/**'
+      - 'src/lib/urls/unstop.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.scraper.json'
+      - '.github/workflows/scraper.yml'
 
 permissions:
   contents: read
