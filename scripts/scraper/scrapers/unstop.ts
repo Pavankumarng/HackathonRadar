@@ -1,12 +1,13 @@
-import type { ScrapedHackathon, Round, HackathonMode } from '../types';
+import type { ScrapedHackathon, Round, HackathonMode, ScraperBatch } from '../types';
 import { toDeadlineISO, toISO } from '../utils/parseDate';
 import { makeLogger } from '../utils/logger';
 import { normalizeUnstopEventUrl } from '../../../src/lib/urls/unstop';
+import { extractUnstopRegistrationDeadline } from '../utils/unstopDeadline';
 
 const logger = makeLogger('unstop');
 const SEARCH_ENDPOINT = 'https://unstop.com/api/public/opportunity/search-result';
 const PER_PAGE = 15;
-const MAX_PAGES = Math.max(1, Math.min(12, Number(process.env.SCRAPER_MAX_PAGES) || 12));
+const MAX_PAGES = Math.max(1, Math.min(50, Number(process.env.SCRAPER_MAX_PAGES) || 50));
 const REQUEST_HEADERS: Record<string, string> = {
   'User-Agent': 'Mozilla/5.0 (compatible; HackathonRadar/1.0; +https://hackathon-radar-alpha.vercel.app)',
   Accept: 'application/json, text/plain, */*',
@@ -132,12 +133,7 @@ function extractRounds(item: UnknownRecord): Round[] {
 }
 
 function deadlineValue(item: UnknownRecord): string | undefined {
-  const requirements = asRecord(item.regnRequirements ?? item.registration_requirements);
-  return text(requirements.end_regn_dt) ||
-    text(item.registration_end) ||
-    text(item.registrationEndDate) ||
-    text(item.regn_end_date) ||
-    text(item.deadline);
+  return extractUnstopRegistrationDeadline(item);
 }
 
 function registrationStartValue(item: UnknownRecord): string | undefined {
@@ -148,7 +144,7 @@ function registrationStartValue(item: UnknownRecord): string | undefined {
     text(item.regn_start_date);
 }
 
-async function fetchPage(page: number): Promise<{ items: UnknownRecord[]; lastPage?: number }> {
+async function fetchPage(page: number): Promise<{ items: UnknownRecord[]; lastPage?: number; totalCount?: number }> {
   const url = new URL(SEARCH_ENDPOINT);
   url.searchParams.set('opportunity', 'hackathons');
   url.searchParams.set('page', String(page));
@@ -177,10 +173,13 @@ async function fetchPage(page: number): Promise<{ items: UnknownRecord[]; lastPa
       const root = asRecord(json);
       const data = asRecord(root.data);
       const items = Array.isArray(data.data) ? data.data : [];
-      const lastPage = Number(data.last_page ?? data.lastPage ?? root.last_page);
+      const pagination = asRecord(data.pagination ?? root.pagination);
+      const lastPage = Number(data.last_page ?? data.lastPage ?? pagination.last_page ?? root.last_page);
+      const totalCount = Number(data.total ?? data.total_count ?? pagination.total ?? pagination.total_count ?? root.total);
       return {
         items: items.map(asRecord),
         lastPage: Number.isInteger(lastPage) && lastPage > 0 ? lastPage : undefined,
+        totalCount: Number.isInteger(totalCount) && totalCount >= 0 ? totalCount : undefined,
       };
     } catch (error) {
       lastError = error;
@@ -190,28 +189,61 @@ async function fetchPage(page: number): Promise<{ items: UnknownRecord[]; lastPa
   throw lastError instanceof Error ? lastError : new Error('Unstop request failed');
 }
 
-export async function scrapeUnstop(): Promise<ScrapedHackathon[]> {
+export async function scrapeUnstop(): Promise<ScraperBatch> {
   logger.info('Starting Unstop paginated API scrape');
   const results = new Map<string, ScrapedHackathon>();
+  const observedUrls = new Set<string>();
   const now = Date.now();
 
+  let observedCount = 0;
+  let pagesFetched = 0;
+  let lastItemsCount = 0;
+  let lastPage: number | undefined;
+  let totalCount: number | undefined;
+  let paginationMetadataPresent = false;
+  let integrityError = false;
+  let completionReason = 'maximum page limit reached';
+
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const { items, lastPage } = await fetchPage(page);
+    const response = await fetchPage(page);
+    const { items } = response;
+    lastPage = response.lastPage;
+    totalCount = response.totalCount;
+    paginationMetadataPresent = Boolean(lastPage || totalCount !== undefined);
+    pagesFetched++;
+    observedCount += items.length;
+    lastItemsCount = items.length;
+
     logger.info(`Unstop page ${page}: received ${items.length} records`);
-    if (items.length === 0) break;
+    if (items.length === 0) {
+      completionReason = page === 1 ? 'empty first page; refusing to reconcile' : 'empty final page';
+      break;
+    }
 
     for (const item of items) {
       const title = text(item.title);
       const sourceUrl = resolveUnstopUrl(item);
-      if (!title || !sourceUrl) continue;
+      if (!title || !sourceUrl) {
+        integrityError = true;
+        logger.warn('Unstop returned a listing without a valid title or event URL; snapshot cannot be reconciled');
+        continue;
+      }
+      observedUrls.add(sourceUrl);
 
       const rawDeadline = deadlineValue(item);
       const registrationEnd = toDeadlineISO(rawDeadline);
       if (!registrationEnd) {
-        logger.skipped(sourceUrl, `No verified registration deadline (raw: ${rawDeadline ?? 'missing'})`);
+        integrityError = true;
+        logger.skipped(sourceUrl, `No explicit registration deadline (raw: ${rawDeadline ?? 'missing'}); snapshot cannot be reconciled`);
         continue;
       }
-      if (Date.parse(registrationEnd) <= now) continue;
+
+      // The opportunity is present in the source snapshot, but its verified
+      // registration cutoff has passed. Do not emit it as an active record.
+      if (Date.parse(registrationEnd) <= now) {
+        logger.info(`Unstop listing is already past its registration cutoff: ${title}`);
+        continue;
+      }
 
       const rawStart = registrationStartValue(item);
       const registrationStart = rawStart ? toISO(rawStart) ?? undefined : undefined;
@@ -235,15 +267,54 @@ export async function scrapeUnstop(): Promise<ScrapedHackathon[]> {
       });
     }
 
-    if ((lastPage && page >= lastPage) || items.length < PER_PAGE) break;
+    if (response.lastPage && page >= response.lastPage) {
+      completionReason = 'reached advertised last page';
+      break;
+    }
+    if (response.totalCount !== undefined && observedCount >= response.totalCount) {
+      completionReason = 'reached advertised total count';
+      break;
+    }
+    if (!response.lastPage && response.totalCount === undefined && items.length < PER_PAGE) {
+      completionReason = 'received a short final page';
+      break;
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 350));
   }
 
-  const output = [...results.values()];
-  logger.success(`Unstop complete: ${output.length} verified active hackathons from up to ${MAX_PAGES} pages`);
-  return output;
-}
+  const metadataComplete =
+    (lastPage !== undefined ? pagesFetched >= lastPage : true) &&
+    (totalCount !== undefined ? observedCount >= totalCount : true);
+  const shortPageComplete = lastItemsCount < PER_PAGE && !paginationMetadataPresent;
+  const paginationComplete = metadataComplete || shortPageComplete;
+  const snapshotComplete =
+    observedCount > 0 &&
+    paginationComplete &&
+    !integrityError;
 
+  if (observedCount === 0) {
+    logger.warn('Unstop returned an empty snapshot; no existing records will be reconciled');
+  } else if (integrityError) {
+    logger.warn('Unstop snapshot contains records with unverified registration dates or URLs; no existing records will be reconciled');
+  } else if (!paginationComplete) {
+    logger.warn(`Unstop pagination is incomplete after ${pagesFetched} pages; no existing records will be reconciled`);
+  }
+
+  const output = [...results.values()];
+  logger.success(
+    `Unstop complete: ${output.length} active listings from ${observedCount} observed rows, ${pagesFetched} pages; snapshotComplete=${snapshotComplete} (${completionReason})`,
+  );
+
+  return {
+    records: output,
+    observedUrls: [...observedUrls],
+    observedCount,
+    pagesFetched,
+    snapshotComplete,
+    completionReason,
+  };
+}
 if (require.main === module) {
   scrapeUnstop()
     .then((results) => {
