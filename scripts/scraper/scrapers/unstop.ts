@@ -179,7 +179,7 @@ async function fetchPage(page: number): Promise<{ items: UnknownRecord[]; lastPa
       return {
         items: items.map(asRecord),
         lastPage: Number.isInteger(lastPage) && lastPage > 0 ? lastPage : undefined,
-        totalCount: Number.isInteger(totalCount) && totalCount >= 0 ? totalCount : undefined,
+        totalCount: Number.isInteger(totalCount) && totalCount > 0 ? totalCount : undefined,
       };
     } catch (error) {
       lastError = error;
@@ -313,6 +313,7 @@ export async function scrapeUnstop(): Promise<ScraperBatch> {
     pagesFetched,
     snapshotComplete,
     completionReason,
+    advertisedTotal: totalCount,
   };
 }
 if (require.main === module) {
