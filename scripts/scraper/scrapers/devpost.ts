@@ -131,7 +131,6 @@ export async function scrapeDevpost(): Promise<ScraperBatch> {
   let lastItemsCount = 0;
   let advertisedTotal: number | undefined;
   let advertisedPerPage: number | undefined;
-  let sawPaginationMetadata = false;
   let integrityError = false;
   let sawEmptyFinalPage = false;
   let completionReason = 'maximum page limit reached';
@@ -143,7 +142,6 @@ export async function scrapeDevpost(): Promise<ScraperBatch> {
     lastItemsCount = items.length;
     if (totalCount !== undefined) advertisedTotal = totalCount;
     if (perPage !== undefined) advertisedPerPage = perPage;
-    sawPaginationMetadata = sawPaginationMetadata || totalCount !== undefined || perPage !== undefined;
 
     logger.info(`Devpost page ${page}: received ${items.length} records`);
     if (items.length === 0) {
