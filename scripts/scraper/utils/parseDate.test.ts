@@ -139,3 +139,8 @@ test('an empty current snapshot identifies all existing rows, but the caller mus
   const existing = ['unstop/a', 'unstop/b'];
   assert.deepEqual(getStaleSourceUrls(existing, new Set()), existing);
 });
+
+test('accepts valid Unstop event slugs with consecutive hyphens before event IDs', () => {
+  const url = 'https://unstop.com/hackathons/craft-n-code-delhi-d3-2026-tech-fest-iiit-bhubaneswar-international-institute-of-information-technology-iiit--1746233';
+  assert.equal(normalizeUnstopEventUrl(url), url);
+});
