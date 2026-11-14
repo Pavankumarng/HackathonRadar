@@ -318,9 +318,13 @@ export async function scrapeUnstop(): Promise<ScraperBatch> {
 }
 if (require.main === module) {
   scrapeUnstop()
-    .then((results) => {
-      console.log(JSON.stringify(results, null, 2));
-      console.log(`Total: ${results.length}`);
+    .then((batch) => {
+      console.log(JSON.stringify(batch, null, 2));
+      console.log(`Total active listings: ${batch.records.length}`);
+      console.log(`Observed source rows: ${batch.observedCount}`);
+      console.log(`Pages fetched: ${batch.pagesFetched}`);
+      console.log(`Snapshot complete: ${batch.snapshotComplete}`);
+      console.log(`Completion reason: ${batch.completionReason}`);
     })
     .catch((error) => {
       console.error(error);
