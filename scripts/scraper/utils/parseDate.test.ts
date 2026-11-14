@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseDateRange, toDeadlineISO } from './parseDate';
 import { normalizeUnstopEventUrl } from '../../../src/lib/urls/unstop';
+import { extractUnstopRegistrationDeadline } from './unstopDeadline';
+import { getStaleSourceUrls } from './reconcile';
 
 test('parses a full month-to-month listing range into IST boundaries', () => {
   const result = parseDateRange('Oct 30 - Dec 04, 2026');
@@ -85,4 +87,53 @@ test('rejects Unstop home, collection and API URLs', () => {
 test('rejects off-domain and unsafe Unstop URLs', () => {
   assert.equal(normalizeUnstopEventUrl('https://example.com/hackathons/event'), null);
   assert.equal(normalizeUnstopEventUrl('javascript:alert(1)'), null);
+});
+
+test('never treats an Unstop event or round end date as a registration deadline', () => {
+  assert.equal(
+    extractUnstopRegistrationDeadline({
+      end_date: '2026-11-14T10:01:00+05:30',
+      rounds: [{ end_date: '2026-11-14T10:01:00+05:30' }],
+    }),
+    undefined,
+  );
+});
+
+test('prefers Unstop registration requirement deadline over event end date', () => {
+  assert.equal(
+    extractUnstopRegistrationDeadline({
+      end_date: '2026-11-14T10:01:00+05:30',
+      regnRequirements: {
+        end_regn_dt: '2026-10-26T23:59:00+05:30',
+      },
+    }),
+    '2026-10-26T23:59:00+05:30',
+  );
+});
+
+test('supports explicit registration_end aliases without falling back to event end', () => {
+  assert.equal(
+    extractUnstopRegistrationDeadline({
+      registration_end: '2026-10-26T23:59:00+05:30',
+      end_date: '2026-11-14T10:01:00+05:30',
+    }),
+    '2026-10-26T23:59:00+05:30',
+  );
+});
+
+test('reconciles only URLs missing from a complete active snapshot', () => {
+  const existing = ['unstop/a', 'unstop/b', 'unstop/c'];
+  const current = new Set(['unstop/a', 'unstop/c']);
+  assert.deepEqual(getStaleSourceUrls(existing, current), ['unstop/b']);
+});
+
+test('does not mark any listing stale when all existing URLs are present', () => {
+  const existing = ['devpost/a', 'devpost/b'];
+  const current = new Set(existing);
+  assert.deepEqual(getStaleSourceUrls(existing, current), []);
+});
+
+test('an empty current snapshot identifies all existing rows, but the caller must require snapshotComplete', () => {
+  const existing = ['unstop/a', 'unstop/b'];
+  assert.deepEqual(getStaleSourceUrls(existing, new Set()), existing);
 });
