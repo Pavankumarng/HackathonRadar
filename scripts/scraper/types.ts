@@ -42,6 +42,7 @@ export interface ScraperBatch {
   observedUrls: string[];
   pagesFetched: number;
   snapshotComplete: boolean;
+  completionReason: string;
   advertisedTotal?: number;
 }
 
