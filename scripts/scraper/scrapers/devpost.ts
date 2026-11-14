@@ -1,10 +1,10 @@
-import type { ScrapedHackathon, HackathonMode } from '../types';
+import type { ScrapedHackathon, HackathonMode, ScraperBatch } from '../types';
 import { parseDateRange } from '../utils/parseDate';
 import { makeLogger } from '../utils/logger';
 
 const logger = makeLogger('devpost');
 const API_URL = 'https://devpost.com/api/hackathons';
-const MAX_PAGES = Math.max(1, Math.min(12, Number(process.env.SCRAPER_MAX_PAGES) || 12));
+const MAX_PAGES = Math.max(1, Math.min(50, Number(process.env.SCRAPER_MAX_PAGES) || 50));
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -120,26 +120,56 @@ async function fetchPage(page: number): Promise<{ items: UnknownRecord[]; totalC
   throw lastError instanceof Error ? lastError : new Error('Devpost API request failed');
 }
 
-export async function scrapeDevpost(): Promise<ScrapedHackathon[]> {
+export async function scrapeDevpost(): Promise<ScraperBatch> {
   logger.info('Starting Devpost public listing API scrape');
   const results = new Map<string, ScrapedHackathon>();
+  const observedUrls = new Set<string>();
   const now = Date.now();
+
+  let observedCount = 0;
+  let pagesFetched = 0;
+  let lastItemsCount = 0;
+  let advertisedTotal: number | undefined;
+  let advertisedPerPage: number | undefined;
+  let sawPaginationMetadata = false;
+  let integrityError = false;
+  let sawEmptyFinalPage = false;
+  let completionReason = 'maximum page limit reached';
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const { items, totalCount, perPage } = await fetchPage(page);
+    pagesFetched++;
+    observedCount += items.length;
+    lastItemsCount = items.length;
+    if (totalCount !== undefined) advertisedTotal = totalCount;
+    if (perPage !== undefined) advertisedPerPage = perPage;
+    sawPaginationMetadata = sawPaginationMetadata || totalCount !== undefined || perPage !== undefined;
+
     logger.info(`Devpost page ${page}: received ${items.length} records`);
-    if (items.length === 0) break;
+    if (items.length === 0) {
+      sawEmptyFinalPage = page > 1;
+      completionReason = page === 1
+        ? 'empty first page; refusing to reconcile'
+        : 'received an empty page after the last populated page';
+      break;
+    }
 
     for (const item of items) {
       const title = stringValue(item.title);
       const sourceUrl = canonicalDevpostUrl(item.url);
-      if (!title || !sourceUrl) continue;
+      if (!title || !sourceUrl) {
+        integrityError = true;
+        logger.warn('Devpost returned a listing without a valid title or event URL; snapshot cannot be reconciled');
+        continue;
+      }
+      observedUrls.add(sourceUrl);
 
       const rawDateRange = stringValue(item.submission_period_dates) ||
         stringValue(item.submission_period);
       const range = parseDateRange(rawDateRange);
       if (!range) {
-        logger.skipped(sourceUrl, `Missing or unparseable year-qualified submission period: ${rawDateRange ?? 'missing'}`);
+        integrityError = true;
+        logger.skipped(sourceUrl, `Missing or unparseable year-qualified submission period: ${rawDateRange ?? 'missing'}; snapshot cannot be reconciled`);
         continue;
       }
       if (Date.parse(range.end) <= now) continue;
@@ -157,16 +187,50 @@ export async function scrapeDevpost(): Promise<ScrapedHackathon[]> {
       });
     }
 
-    if (totalCount && perPage && page * perPage >= totalCount) break;
-    if (perPage && items.length < perPage) break;
+    if (totalCount !== undefined && observedCount >= totalCount) {
+      completionReason = 'reached advertised total count';
+      break;
+    }
+    if (perPage !== undefined && items.length < perPage) {
+      completionReason = 'received a short page relative to advertised page size';
+      break;
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
 
-  const output = [...results.values()];
-  logger.success(`Devpost complete: ${output.length} verified active listings`);
-  return output;
-}
+  const metadataComplete = advertisedTotal !== undefined
+    ? observedCount >= advertisedTotal
+    : advertisedPerPage !== undefined
+      ? lastItemsCount < advertisedPerPage
+      : sawEmptyFinalPage;
+  const snapshotComplete =
+    observedCount > 0 &&
+    metadataComplete &&
+    !integrityError;
 
+  if (observedCount === 0) {
+    logger.warn('Devpost returned an empty snapshot; no existing records will be reconciled');
+  } else if (integrityError) {
+    logger.warn('Devpost snapshot contains unparseable listings; no existing records will be reconciled');
+  } else if (!metadataComplete) {
+    logger.warn(`Devpost pagination is incomplete after ${pagesFetched} pages; no existing records will be reconciled`);
+  }
+
+  const output = [...results.values()];
+  logger.success(
+    `Devpost complete: ${output.length} active listings from ${observedCount} observed rows, ${pagesFetched} pages; snapshotComplete=${snapshotComplete} (${completionReason})`,
+  );
+
+  return {
+    records: output,
+    observedUrls: [...observedUrls],
+    observedCount,
+    pagesFetched,
+    snapshotComplete,
+    completionReason,
+    advertisedTotal,
+  };
+}
 if (require.main === module) {
   scrapeDevpost()
     .then((results) => {
