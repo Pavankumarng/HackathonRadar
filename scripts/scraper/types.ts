@@ -31,14 +31,32 @@ export interface ScrapedHackathon {
   venue_state?: string;
 }
 
-export type ScraperFn = () => Promise<ScrapedHackathon[]>;
+/**
+ * A complete source snapshot allows the orchestrator to reconcile old rows
+ * against the source's current open/upcoming listing feed. An incomplete
+ * snapshot must never deactivate anything.
+ */
+export interface ScraperBatch {
+  records: ScrapedHackathon[];
+  observedCount: number;
+  observedUrls: string[];
+  pagesFetched: number;
+  snapshotComplete: boolean;
+  advertisedTotal?: number;
+}
+
+export type ScraperFn = () => Promise<ScraperBatch>;
 
 export interface RunStats {
   source: SourceSite;
   fetched: number;
+  observed: number;
+  pagesFetched: number;
+  snapshotComplete: boolean;
   upserted: number;
   inserted: number;
   updated: number;
+  deactivated: number;
   skipped: number;
   errors: string[];
 }
@@ -51,6 +69,7 @@ export interface OrchestratorSummary {
   totalNew: number;
   totalUpdated: number;
   totalUpserted: number;
+  totalDeactivated: number;
   totalSkipped: number;
   totalExpired: number;
   perSource: RunStats[];
