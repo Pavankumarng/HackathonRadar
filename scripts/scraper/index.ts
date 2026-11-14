@@ -199,17 +199,33 @@ async function deactivateMissingSourceRows(
   source: SourceSite,
   currentActiveUrls: ReadonlySet<string>,
 ): Promise<number> {
-  const { data: existingRows, error: readError } = await supabase
-    .from('hackathons')
-    .select('id, source_url')
-    .eq('source_site', source)
-    .eq('is_active', true);
+  // Read the complete active source set in bounded pages. A single Supabase
+  // REST request may be capped; reconciling against a truncated read could
+  // incorrectly deactivate rows beyond that cap.
+  const existingRows: Array<{ id: string; source_url: string }> = [];
+  const READ_PAGE_SIZE = 500;
+  let offset = 0;
 
-  if (readError) {
-    throw new Error(`Could not read active ${source} rows for reconciliation: ${readError.message}`);
+  while (true) {
+    const { data, error } = await supabase
+      .from('hackathons')
+      .select('id, source_url')
+      .eq('source_site', source)
+      .eq('is_active', true)
+      .order('id', { ascending: true })
+      .range(offset, offset + READ_PAGE_SIZE - 1);
+
+    if (error) {
+      throw new Error(`Could not read active ${source} rows for reconciliation: ${error.message}`);
+    }
+
+    const page = data ?? [];
+    existingRows.push(...page);
+    if (page.length < READ_PAGE_SIZE) break;
+    offset += page.length;
   }
 
-  const rows = existingRows ?? [];
+  const rows = existingRows;
   const staleUrls = new Set(getStaleSourceUrls(
     rows.map((row) => row.source_url),
     currentActiveUrls,
