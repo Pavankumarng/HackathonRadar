@@ -3,7 +3,7 @@ name: Scraper Smoke Test
 on:
   push:
     branches:
-      - codex/hackathonradar-quality-hardening
+      - codex/fix-registration-status-and-stale-listings
   workflow_dispatch:
 
 permissions:
@@ -39,4 +39,4 @@ jobs:
           npm run test:scraper
 
       - name: Run all scrapers without database writes
-        run: SCRAPER_MAX_PAGES=1 npm run scrape:dry
+        run: SCRAPER_MAX_PAGES=50 npm run scrape:dry
