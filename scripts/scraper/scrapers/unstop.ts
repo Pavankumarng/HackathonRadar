@@ -233,7 +233,9 @@ export async function scrapeUnstop(): Promise<ScraperBatch> {
       const sourceUrl = resolveUnstopUrl(item);
       if (!title || !sourceUrl) {
         integrityError = true;
-        logger.warn('Unstop returned a listing without a valid title or event URL; snapshot cannot be reconciled');
+        logger.warn(
+          `Unstop row failed identity validation: id=${text(item.id) || text(item.opportunity_id) || 'missing'}, title=${title || 'missing'}, public_url=${text(item.public_url) || 'missing'}, seo_url=${text(item.seo_url) || 'missing'}, url=${text(item.url) || 'missing'}, slug=${text(item.slug) || 'missing'}`,
+        );
         continue;
       }
       observedUrls.add(sourceUrl);
