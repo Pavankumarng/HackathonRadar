@@ -93,6 +93,8 @@ test('never treats an Unstop event or round end date as a registration deadline'
   assert.equal(
     extractUnstopRegistrationDeadline({
       end_date: '2026-11-14T10:01:00+05:30',
+      event_end_date: '2026-11-14T10:01:00+05:30',
+      deadline: '2026-11-14T10:01:00+05:30',
       rounds: [{ end_date: '2026-11-14T10:01:00+05:30' }],
     }),
     undefined,
