@@ -216,7 +216,7 @@ export async function scrapeUnstop(): Promise<ScraperBatch> {
     observedCount += items.length;
     lastItemsCount = items.length;
 
-    logger.info(`Unstop page ${page}: received ${items.length} records`);
+    logger.info(`Unstop page ${page}: received ${items.length} records; advertisedLastPage=${lastPage ?? 'unknown'}, advertisedTotal=${totalCount ?? 'unknown'}, pageSize=${PER_PAGE}`);
     if (items.length === 0) {
       if (page > 1 && (lastPage === undefined || page > lastPage)) {
         sawConfirmedEmptyEnd = true;
