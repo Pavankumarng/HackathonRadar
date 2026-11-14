@@ -24,8 +24,9 @@ export function extractUnstopRegistrationDeadline(item: unknown): string | undef
   const requirements = asRecord(record.regnRequirements ?? record.registration_requirements);
 
   return text(requirements.end_regn_dt) ||
+    text(record.end_regn_dt) ||
     text(record.registration_end) ||
+    text(record.registration_deadline) ||
     text(record.registrationEndDate) ||
-    text(record.regn_end_date) ||
-    text(record.deadline);
+    text(record.regn_end_date);
 }
