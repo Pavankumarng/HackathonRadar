@@ -15,10 +15,11 @@ dotenvConfig({ path: resolve(process.cwd(), '.env') });
 
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../../src/types/database';
-import type { HackathonMode, SourceSite, ScrapedHackathon, RunStats, OrchestratorSummary } from './types';
+import type { HackathonMode, SourceSite, ScrapedHackathon, ScraperBatch, RunStats, OrchestratorSummary } from './types';
 import { scrapeUnstop } from './scrapers/unstop';
 import { scrapeDevpost } from './scrapers/devpost';
 import { makeLogger } from './utils/logger';
+import { getStaleSourceUrls } from './utils/reconcile';
 
 const logger = makeLogger('orchestrator');
 const DRY_RUN = process.env.SCRAPE_DRY_RUN === 'true';
@@ -64,7 +65,7 @@ async function withTimeout<T>(task: Promise<T>, ms: number, label: string): Prom
   }
 }
 
-const SCRAPERS: Array<{ name: SourceSite; run: () => Promise<ScrapedHackathon[]> }> = [
+const SCRAPERS: Array<{ name: SourceSite; run: () => Promise<ScraperBatch> }> = [
   { name: 'unstop', run: scrapeUnstop },
   { name: 'devpost', run: scrapeDevpost },
 ];
@@ -189,6 +190,53 @@ async function upsertHackathons(
   return { inserted, updated, skipped, errors };
 }
 
+/**
+ * Mark source rows inactive only after a fully verified source snapshot.
+ * Rows are retained for history; they are never deleted.
+ */
+async function deactivateMissingSourceRows(
+  supabase: AdminClient,
+  source: SourceSite,
+  currentActiveUrls: ReadonlySet<string>,
+): Promise<number> {
+  const { data: existingRows, error: readError } = await supabase
+    .from('hackathons')
+    .select('id, source_url')
+    .eq('source_site', source)
+    .eq('is_active', true);
+
+  if (readError) {
+    throw new Error(`Could not read active ${source} rows for reconciliation: ${readError.message}`);
+  }
+
+  const rows = existingRows ?? [];
+  const staleUrls = new Set(getStaleSourceUrls(
+    rows.map((row) => row.source_url),
+    currentActiveUrls,
+  ));
+  const staleIds = rows
+    .filter((row) => staleUrls.has(row.source_url))
+    .map((row) => row.id);
+
+  let deactivated = 0;
+  for (let offset = 0; offset < staleIds.length; offset += BATCH_SIZE) {
+    const ids = staleIds.slice(offset, offset + BATCH_SIZE);
+    const { data, error } = await supabase
+      .from('hackathons')
+      .update({ is_active: false })
+      .in('id', ids)
+      .select('id');
+
+    if (error) {
+      throw new Error(`Could not deactivate stale ${source} rows: ${error.message}`);
+    }
+    deactivated += data?.length ?? 0;
+  }
+
+  logger.info(`${source} reconciliation: ${deactivated} previously active listings marked inactive; no rows deleted`);
+  return deactivated;
+}
+
 async function expireOldHackathons(supabase: AdminClient): Promise<number> {
   const { data, error } = await supabase.rpc('expire_old_hackathons_count');
   if (!error) {
@@ -220,6 +268,7 @@ async function main(): Promise<void> {
   let totalFetched = 0;
   let totalInserted = 0;
   let totalUpdated = 0;
+  let totalDeactivated = 0;
   let totalSkipped = 0;
 
   for (const scraper of SCRAPERS) {
@@ -227,19 +276,25 @@ async function main(): Promise<void> {
     const started = Date.now();
     const errors: string[] = [];
     let fetched = 0;
+    let pagesFetched = 0;
+    let snapshotComplete = false;
     let inserted = 0;
     let updated = 0;
+    let deactivated = 0;
     let skipped = 0;
 
     logger.info(`Starting source: ${name}`);
     try {
-      const records = await withTimeout(run(), SCRAPER_TIMEOUT_MS, name);
-      fetched = records.length;
+      const batch = await withTimeout(run(), SCRAPER_TIMEOUT_MS, name);
+      fetched = batch.observedCount;
+      pagesFetched = batch.pagesFetched;
+      snapshotComplete = batch.snapshotComplete;
+
       const now = Date.now();
       const seen = new Set<string>();
       const valid: ScrapedHackathon[] = [];
 
-      for (const record of records) {
+      for (const record of batch.records) {
         const validationError = validateRecord(record, name, now);
         if (validationError) {
           skipped++;
@@ -255,17 +310,43 @@ async function main(): Promise<void> {
         valid.push(record);
       }
 
-      if (valid.length === 0) {
-        logger.warn(`${name} returned zero verified active listings (fetched ${fetched})`);
-      } else if (DRY_RUN) {
-        logger.info(`Dry run: ${valid.length} ${name} records validated; no database writes performed`);
+      logger.info(
+        `${name} snapshot: observed=${batch.observedCount}, validFutureListings=${valid.length}, pages=${batch.pagesFetched}, complete=${batch.snapshotComplete}, reason=${batch.completionReason}`,
+      );
+
+      if (DRY_RUN) {
+        logger.info(`Dry run: ${valid.length} ${name} records validated; no database writes or reconciliation performed`);
       } else if (supabase) {
-        const outcome = await upsertHackathons(supabase, valid, name);
-        inserted = outcome.inserted;
-        updated = outcome.updated;
-        skipped += outcome.skipped;
-        errors.push(...outcome.errors);
-        if (outcome.errors.length) hadFailure = true;
+        let upsertSucceeded = true;
+
+        if (valid.length > 0) {
+          const outcome = await upsertHackathons(supabase, valid, name);
+          inserted = outcome.inserted;
+          updated = outcome.updated;
+          skipped += outcome.skipped;
+          errors.push(...outcome.errors);
+          if (outcome.errors.length) {
+            hadFailure = true;
+            upsertSucceeded = false;
+          }
+        } else {
+          logger.info(`${name} has no verified future-registration listings in this source snapshot`);
+        }
+
+        // Any invalid/duplicate returned record blocks reconciliation. We
+        // prefer temporarily stale cards to accidentally hiding legitimate
+        // events because a source payload changed unexpectedly.
+        if (batch.snapshotComplete && upsertSucceeded && skipped === 0) {
+          deactivated = await deactivateMissingSourceRows(
+            supabase,
+            name,
+            new Set(valid.map((record) => record.source_url)),
+          );
+        } else {
+          logger.warn(
+            `${name} reconciliation skipped (snapshotComplete=${batch.snapshotComplete}, upsertSucceeded=${upsertSucceeded}, skipped=${skipped})`,
+          );
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -275,13 +356,28 @@ async function main(): Promise<void> {
     }
 
     const upserted = inserted + updated;
-    const stats: RunStats = { source: name, fetched, upserted, inserted, updated, skipped, errors };
+    const stats: RunStats = {
+      source: name,
+      fetched,
+      observed: fetched,
+      pagesFetched,
+      snapshotComplete,
+      upserted,
+      inserted,
+      updated,
+      deactivated,
+      skipped,
+      errors,
+    };
     perSource.push(stats);
     totalFetched += fetched;
     totalInserted += inserted;
     totalUpdated += updated;
+    totalDeactivated += deactivated;
     totalSkipped += skipped;
-    logger.info(`${name} completed in ${((Date.now() - started) / 1000).toFixed(1)}s: fetched=${fetched}, inserted=${inserted}, updated=${updated}, skipped=${skipped}`);
+    logger.info(
+      `${name} completed in ${((Date.now() - started) / 1000).toFixed(1)}s: observed=${fetched}, pages=${pagesFetched}, complete=${snapshotComplete}, inserted=${inserted}, updated=${updated}, deactivated=${deactivated}, skipped=${skipped}`,
+    );
   }
 
   let totalExpired = 0;
@@ -305,6 +401,7 @@ async function main(): Promise<void> {
     totalNew: totalInserted,
     totalUpdated,
     totalUpserted: totalInserted + totalUpdated,
+    totalDeactivated,
     totalSkipped,
     totalExpired,
     perSource,
@@ -313,7 +410,16 @@ async function main(): Promise<void> {
   if (!DRY_RUN && supabase) {
     const results = Object.fromEntries(perSource.map((item) => [
       item.source,
-      { fetched: item.fetched, inserted: item.inserted, updated: item.updated, skipped: item.skipped },
+      {
+        fetched: item.fetched,
+        observed: item.observed,
+        pagesFetched: item.pagesFetched,
+        snapshotComplete: item.snapshotComplete,
+        inserted: item.inserted,
+        updated: item.updated,
+        deactivated: item.deactivated,
+        skipped: item.skipped,
+      },
     ]));
     const errors = Object.fromEntries(perSource.filter((item) => item.errors.length).map((item) => [item.source, item.errors]));
 
