@@ -17,12 +17,13 @@ A discovery dashboard for active hackathons from **Unstop and Devpost**. Listing
 
 ## Features
 
-- Aggregated hackathon listings from Unstop and Devpost.
+- Aggregated hackathon listings from the two active scrapers: **Unstop and Devpost**.
 - Historical HackCulture records remain viewable, but automated collection is paused pending an approved API or written permission.
 - Filters for event mode, source, keyword, and registration deadline.
 - Server-rendered, paginated listings backed by Supabase.
 - Registration countdowns, available event metadata, tags, and direct links to the source listing.
 - Scheduled scraper execution every 12 hours, with a manual workflow trigger.
+- Optional API rate limiting backed by Upstash's serverless Redis service.
 - Run telemetry in a private `scrape_runs` table.
 - Deadline validation: events without a verifiable deadline are skipped rather than assigned an invented date.
 
@@ -70,6 +71,8 @@ Existing HackCulture records ─────────────────
 
    Never expose `SUPABASE_SERVICE_ROLE_KEY` through a `NEXT_PUBLIC_*` variable or commit it to Git.
 
+   Upstash provides the serverless Redis backend for API rate limiting. The app uses `@upstash/ratelimit` with a sliding window of 60 requests per minute per client IP when both Upstash environment variables are configured. If they are not configured, the API runs without this optional rate limiter.
+
 3. Start the application:
 
    ```bash
@@ -112,7 +115,7 @@ Expired listings are marked inactive; existing records are not automatically del
 
 ## Current source coverage
 
-The scheduled scraper currently collects from **Unstop and Devpost**. HackCulture records already stored in the database remain visible and filterable, but its automated scraper is disabled. HackCulture's published [Terms & Conditions](https://hackculture.io/legal/terms-and-conditions) prohibit scraping, reverse engineering, and using the platform to build competing services. Re-enable collection only after receiving written permission or an official API/integration agreement. This is an intentional compliance restriction, not a failed background job.
+The scheduled scraper currently collects from **Unstop and Devpost only**. These are the two active automated scraper integrations. HackCulture records already stored in the database remain visible and filterable, but its automated scraper is disabled. HackCulture's published [Terms & Conditions](https://hackculture.io/legal/terms-and-conditions) prohibit scraping, reverse engineering, and using the platform to build competing services. Re-enable collection only after receiving written permission or an official API/integration agreement. This is an intentional compliance restriction, not a failed background job.
 
 ---
 
